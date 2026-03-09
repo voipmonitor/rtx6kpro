@@ -62,16 +62,18 @@ Kimi K2.5 requires **8x RTX PRO 6000 Blackwell** (768 GB total VRAM) minimum. 4 
 |---|---|---|---|---|---|
 | Festr Turin | 2x EPYC 9575F 64-Core | DDR5-6400, 24x96 GB (2.2 TB) | 3x links | 8x RTX PRO 6000 SE | Primary reference system |
 | Festr Genoa | 2x EPYC Genoa | DDR5-4800, 12 ch/CPU | 3x links | 8x RTX PRO 6000 SE | Budget system, slower |
-| orangezed | 2x EPYC 9374F 32-Core | DDR5-4800, 10x48 GB | 2x links | 8x RTX PRO 6000 Max-Q WS | Memory bottleneck |
+| orangezed | 2x EPYC 9374F 32-Core | DDR5-4800, 10x48 GB | 2x links | 8x RTX PRO 6000 Max-Q WS | Lower cross-NUMA BW |
 | luke | AMD TR Pro (single) | -- | N/A | 8x RTX 6000 Pro Max-Q | PCIe switches, overclocked GDDR7 |
 | Grimulkan | AMD Turin (single) | -- | N/A | 8-16x RTX PRO 6000 | PCIe switches |
 
-### Critical: DRAM configuration matters
+### DRAM and xGMI configuration
 
-orangezed's performance gap (9 tok/s vs Festr's 30 tok/s at 100K context) was partially attributed to:
+orangezed's system has lower cross-NUMA bandwidth (~64 GB/s bidirectional vs ~99+ GB/s on Festr Turin) due to:
 - Only 5 DIMM channels per CPU (vs 12 for Festr)
 - DDR5-4800 (vs DDR5-6400 on Turin)
 - Only 2x xGMI links (vs 3x)
+
+> **Note:** orangezed initially reported ~9 tok/s at 100K context, but this was a measurement error — wall-clock time including prefill was divided by generated tokens. Actual decode throughput from the vLLM stats log was **30-35 tok/s**.
 
 ---
 
@@ -412,10 +414,12 @@ Grimulkan reported that speculative decoding in vLLM was "strictly worse than no
 | Festr Turin | vLLM, FP8 KV, DCP=8, no P2P | 44 tok/s | 29 tok/s | 23 tok/s | P2P disabled + channels |
 | Festr Genoa | vLLM, FP8 KV, DCP=8 | ~32 tok/s | ~32 tok/s | -- | Slower than Turin |
 | Grimulkan (switches) | vLLM, FP8 KV, DCP=8 | 62 tok/s | 32 tok/s | 21 tok/s | Normal NCCL |
-| orangezed | vLLM, FP8 KV, DCP=8 | 32-35 tok/s | 8.6-10.2 tok/s | 19-20 tok/s | 5-channel DIMM bottleneck |
+| orangezed | vLLM, FP8 KV, DCP=8 | 32-35 tok/s | 30-35 tok/s* | 19-20 tok/s | Genoa, 5-ch DIMM, 2x xGMI |
 | Festr Turin | vLLM, BF16 KV, FA2, DCP=1 | **90 tok/s** | -- | -- | Best single batch |
 | luke (switches) | SGLang, INT4 EP=8, custom AR | **101 tok/s** | -- | -- | Overclocked GDDR7 |
 | CyySky | SGLang, BF16 KV | 90 tok/s | -- | -- | At 2K context, 232K total ctx |
+
+*\*orangezed initially reported 8.6-10.2 tok/s at 100K, but this was wall-clock time including prefill. Actual decode throughput from vLLM stats was 30-35 tok/s.*
 
 ### High concurrency (100 concurrent requests, 40K context each)
 

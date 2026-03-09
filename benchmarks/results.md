@@ -121,7 +121,7 @@ All on 8x RTX 6000 Pro unless noted.
 | Grimulkan (switches) | vLLM | FP8 | 8 | 62 | INT4, normal NCCL |
 | nvidia checkpoint | SGLang | FP8 | -- | 53-55 | NVFP4, ~450K context |
 | Festr Turin | vLLM | FP8 | 8 (no P2P) | 44 | INT4, NCCL_P2P_DISABLE=1 |
-| orangezed | vLLM | FP8 | 8 | 32-35 | INT4, 5-channel DIMM bottleneck |
+| orangezed | vLLM | FP8 | 8 | 32-35 | INT4, Genoa 5-ch DIMM, 2x xGMI |
 
 ### Kimi K2.5 Context Length Scaling
 
@@ -133,7 +133,9 @@ vLLM, INT4, FP8 KV, DCP=8, 8x RTX 6000 Pro:
 | Festr Turin (no P2P) | 44 tok/s | 29 tok/s | 23 tok/s |
 | Festr Genoa | ~32 tok/s | ~32 tok/s | -- |
 | Grimulkan (switches) | 62 tok/s | 32 tok/s | 21 tok/s |
-| orangezed (5-ch DIMM) | 32-35 tok/s | 8.6-10.2 tok/s | 19-20 tok/s |
+| orangezed (Genoa) | 32-35 tok/s | 30-35 tok/s* | 19-20 tok/s |
+
+*\*orangezed initially reported 8.6-10.2 tok/s at 100K, but this was wall-clock time including prefill. Actual decode throughput from vLLM stats was 30-35 tok/s.*
 
 **Without DCP at 150K context: 6-7 tok/s (unusable). With DCP=8: 28-35 tok/s.**
 

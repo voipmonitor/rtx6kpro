@@ -205,7 +205,7 @@ pynvml.nvmlShutdown()
 | RAM | 10x48 GB DDR5-4800 (472 GB, only 5 channels/CPU) |
 | GPUs | 8x RTX PRO 6000 Blackwell MaxQ Workstation Edition |
 | xGMI | 2x links only |
-| Notes | Under-populated DRAM caused performance issues |
+| Notes | Lower cross-NUMA bandwidth (~64 GB/s bidir vs ~99+ on Turin) |
 
 ### Ixtrix -- Desktop 4-GPU Build
 

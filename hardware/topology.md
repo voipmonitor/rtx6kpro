@@ -128,14 +128,14 @@ The CPU generation makes a dramatic difference for cross-NUMA GPU communication.
 
 ### DRAM Configuration Impact
 
-DRAM channel count and speed significantly affect cross-NUMA throughput. Under-populated DRAM causes severe performance drops:
+DRAM channel count and speed affect cross-NUMA bandwidth. Under-populated DRAM reduces available bandwidth:
 
-| System | DIMM Config | Cross-NUMA Perf |
-|--------|-------------|-----------------|
-| Festr (Turin) | 24x96 GB DDR5-6400, all 12 channels/CPU | 30+ tok/s at 100K context |
-| orangezed | 10x48 GB DDR5-4800, 5 channels/CPU | 9 tok/s at 100K context |
+| System | DIMM Config | xGMI Links | Cross-NUMA BW (bidir) |
+|--------|-------------|------------|----------------------|
+| Festr (Turin) | 24x96 GB DDR5-6400, all 12 channels/CPU | 3x | ~99+ GB/s |
+| orangezed (Genoa) | 10x48 GB DDR5-4800, 5 channels/CPU | 2x | ~64 GB/s |
 
-The 3x performance gap was primarily attributed to DRAM channel count and speed, not CPU generation alone.
+> **Note:** orangezed initially reported ~9 tok/s at 100K context for Kimi K2.5, but this was a **measurement error** — wall-clock time (including prefill) was divided by tokens generated. Actual decode-only throughput (from vLLM stats log) was **30-35 tok/s**, comparable to other Genoa systems. The DRAM/xGMI differences do impact cross-NUMA bandwidth, but the effect on single-batch decode is smaller than initially believed.
 
 ---
 
