@@ -61,21 +61,26 @@ MTP acceptance stats: 89.2% acceptance rate, mean acceptance length 2.73-3.69 to
 
 ### Qwen3.5 MTP Quality (GPQA)
 
-Does MTP speculative decoding affect accuracy? GPQA Diamond (198 questions), 8 repeats, temperature=0.0, thinking enabled, simple-evals framework.
+Does MTP speculative decoding affect accuracy? SGLang 0.5.9, 8x RTX PRO 6000 Blackwell, TP8, GPQA Diamond (198 questions), 8 repeats, temperature=0.0, thinking enabled, [simple-evals](https://github.com/openai/simple-evals) framework.
 
-| Run | lukealonso MTP | lukealonso No MTP | nvidia MTP |
-|:---:|:---:|:---:|:---:|
-| 1 | 0.889 | 0.864 | 0.859 |
-| 2 | 0.879 | 0.874 | 0.904 |
-| 3 | 0.869 | 0.894 | 0.859 |
-| 4 | 0.884 | 0.869 | 0.884 |
-| 5 | 0.904 | 0.889 | 0.879 |
-| 6 | 0.884 | 0.864 | 0.859 |
-| 7 | 0.879 | 0.874 | 0.874 |
-| 8 | 0.874 | 0.874 | 0.879 |
-| **Mean** | **0.8826** | **0.8750** | **0.8744** |
+| Run | lukealonso MTP | lukealonso No MTP | nvidia MTP | nvidia No MTP |
+|:---:|:---:|:---:|:---:|:---:|
+| 1 | 0.889 | 0.864 | 0.859 | 0.864 |
+| 2 | 0.879 | 0.874 | 0.904 | 0.859 |
+| 3 | 0.869 | 0.894 | 0.859 | 0.869 |
+| 4 | 0.884 | 0.869 | 0.884 | 0.864 |
+| 5 | 0.904 | 0.889 | 0.879 | 0.848 |
+| 6 | 0.884 | 0.864 | 0.859 | 0.864 |
+| 7 | 0.879 | 0.874 | 0.874 | 0.869 |
+| 8 | 0.874 | 0.874 | 0.879 | 0.889 |
+| **Mean** | **0.8826** | **0.8750** | **0.8744** | **0.8655** |
+| **Wall time** | ~1h 29m | ~1h 48m | ~1h 43m | ~2h 15m |
 
-MTP vs no-MTP difference: +0.76pp, p=0.18 (not significant). MTP is **~18% faster** (~89 min vs ~108 min) with no quality loss. Full analysis: [mtp-quality-evaluation.md](mtp-quality-evaluation.md).
+MTP impact: lukealonso +0.76pp (p=0.18, not significant), nvidia +0.89pp. MTP provides **18-24% faster inference** with no quality loss.
+
+Checkpoint impact: lukealonso consistently outperforms nvidia (+0.82-0.95pp on GPQA, +5pp on GSM8K without thinking). Consistent with [KLD results](kld-evaluation.md) (0.035 vs 0.109).
+
+Full analysis with GSM8K and Hard Math results: [mtp-quality-evaluation.md](mtp-quality-evaluation.md).
 
 ### Qwen3.5 Context Length Scaling
 
