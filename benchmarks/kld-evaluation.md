@@ -47,7 +47,34 @@ nvidia/Qwen3.5-397B-A17B-NVFP4            0.108526     0.027302   0.467703   1.4
 
 - **INT4 (AWQ)** has 16 quantization levels with per-channel scaling and salient weight protection — smarter allocation of precision to important weights.
 - **FP4 (NVFP4, E2M1)** has only 8 unique values — less effective precision, but has dedicated Blackwell FP4 Tensor Core hardware for faster matmul.
-- NVFP4 trades quality for throughput; AWQ trades throughput for quality.
+- NVFP4 trades quality for throughput; AWQ trades throughput for quality — **however, our throughput benchmarks show AWQ is also faster** (see below).
+
+### Throughput Benchmark (MTP Speculative Decoding)
+
+All models tested with MTP enabled (`--speculative-algorithm NEXTN --disable-radix-cache`), SGLang with `--enable-metrics`, 4x RTX PRO 6000 Blackwell (TP4). Throughput measured from server-side `sglang:gen_throughput` Prometheus metric.
+
+```
+Decode throughput (tok/s), context=0, MTP accept rate ~73-78%
+=========================================================================
+
+Model                                 C=1    C=4    C=16    C=32
+---------------------------------------------------------------------
+QuantTrio/Qwen3.5-397B-A17B-AWQ      138    410    1015    1404
+lukealonso/Qwen3.5-397B-A17B-NVFP4   109    370     870    1360
+nvidia/Qwen3.5-397B-A17B-NVFP4       119    333     846    1266
+```
+
+**AWQ wins on both quality AND throughput** for this model class on Blackwell. The AWQ model uses INT4 GEMM on standard Tensor Cores, while NVFP4 uses dedicated Blackwell FP4 Tensor Cores — but the AWQ model's MTP draft model runs faster (no FP4 quant overhead on draft model), resulting in higher overall throughput.
+
+#### MTP setup (critical)
+
+MTP (Multi-Token Prediction) speculative decoding requires **both**:
+1. `SGLANG_ENABLE_SPEC_V2=True` (environment variable)
+2. `--speculative-algorithm NEXTN` (CLI flag)
+
+The env var alone does NOT enable MTP. Without the CLI flag, `speculative_algorithm=None` in the server config and MTP is completely disabled.
+
+VLM-format models (`Qwen3_5MoeForConditionalGeneration`) additionally require `--disable-radix-cache` for MTP to work — SGLang's radix cache is incompatible with speculative decoding for this model architecture.
 
 ### Interpretation scale
 
