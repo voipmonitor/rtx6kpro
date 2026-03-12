@@ -1,6 +1,6 @@
 # KLD Evaluation for Quantized Models
 
-Measure how much quality is lost in quantized models (e.g. NVFP4) compared to a higher-precision reference (FP8) using KL divergence over full vocabulary logit distributions.
+Measure how much quality is lost in quantized models (NVFP4, AWQ, etc.) compared to a higher-precision reference (FP8) using KL divergence over full vocabulary logit distributions.
 
 ## Table of Contents
 
@@ -18,11 +18,13 @@ Measure how much quality is lost in quantized models (e.g. NVFP4) compared to a 
 
 Standard benchmarks (MMLU, HumanEval, etc.) are noisy and coarse. KL divergence measures the **exact difference in output probability distributions** between two models, giving a much more sensitive quality metric.
 
-**Reference model:** `Qwen/Qwen3.5-397B-A17B-FP8` (TP8, 8× RTX 6000 Pro)
-**Test model:** `nvidia/Qwen3.5-397B-A17B-NVFP4` (TP4, 4× RTX 6000 Pro)
+**Reference model:** `Qwen/Qwen3.5-397B-A17B-FP8` (TP8, 8x RTX PRO 6000 Blackwell)
+**Test models:** See results below
 **Dataset:** WikiText-2, 100 sliding windows (2048 tokens, stride 512), 204,800 total positions
 
 ## Results
+
+All measurements taken on 8x RTX PRO 6000 Blackwell Server Edition, SGLang with `--attention-backend triton`, same container and reference for all models.
 
 ```
 KLD Evaluation Results (ref: Qwen3.5-397B-A17B-FP8, dataset: wikitext-2, 204,800 positions)
@@ -30,25 +32,31 @@ KLD Evaluation Results (ref: Qwen3.5-397B-A17B-FP8, dataset: wikitext-2, 204,800
 
 Model                                      Mean KLD   Median KLD    P95 KLD    P99 KLD    Max KLD
 ------------------------------------------------------------------------------------------------
-nvidia/Qwen3.5-397B-A17B-NVFP4            0.108530     0.027253   0.471153   1.409069    19.6018
+QuantTrio/Qwen3.5-397B-A17B-AWQ (INT4)    0.024042     0.004788   0.097537   0.346614     3.7282
+lukealonso/Qwen3.5-397B-A17B-NVFP4        0.035269     0.006830   0.146239   0.529040     4.5687
+nvidia/Qwen3.5-397B-A17B-NVFP4            0.108526     0.027302   0.467703   1.411015    19.6018
 ```
 
-### Interpretation
+### Ranking
+
+1. **QuantTrio/AWQ-INT4** — best quality across all metrics. Mean KLD 0.024 (near-lossless).
+2. **lukealonso/NVFP4** — 1.5x worse than AWQ but still good. Mean KLD 0.035.
+3. **nvidia/NVFP4** — 4.5x worse than AWQ, 3x worse than lukealonso. Mean KLD 0.109, with a heavy tail (Max KLD 19.6).
+
+### Why AWQ beats NVFP4 in quality
+
+- **INT4 (AWQ)** has 16 quantization levels with per-channel scaling and salient weight protection — smarter allocation of precision to important weights.
+- **FP4 (NVFP4, E2M1)** has only 8 unique values — less effective precision, but has dedicated Blackwell FP4 Tensor Core hardware for faster matmul.
+- NVFP4 trades quality for throughput; AWQ trades throughput for quality.
+
+### Interpretation scale
 
 | Mean KLD | Quantization quality |
 |----------|---------------------|
 | < 0.01 | Near-lossless |
-| 0.01 – 0.05 | Good, minimal quality loss |
-| 0.05 – 0.1 | Noticeable quality loss |
-| **> 0.1** | **Significant quality loss** |
-
-The nvidia NVFP4 checkpoint shows:
-- **Mean 0.108** — significant overall quality loss vs FP8
-- **Median 0.027** (4× lower than mean) — most positions are OK, but the heavy tail drags the mean up
-- **P95 = 0.47** — 5% of positions have substantial divergence
-- **Max = 19.6** — some positions have completely different distributions
-
-**Bottom line:** Usable for casual chat, but precision-sensitive tasks (code, math, long reasoning chains) will be noticeably degraded compared to FP8.
+| 0.01 - 0.05 | Good, minimal quality loss |
+| 0.05 - 0.1 | Noticeable quality loss |
+| > 0.1 | Significant quality loss |
 
 ---
 
@@ -62,32 +70,32 @@ SGLang only exposes top-k logprobs via its API, not full vocabulary logits. KLD 
 
 1. **Patch SGLang** at runtime to capture full `[N, vocab_size]` log-probability tensors during prefill
 2. **Run reference model** (FP8) on sliding windows over WikiText-2, saving logits to disk as safetensors
-3. **Run test model** (NVFP4) on the same windows, saving logits to disk
+3. **Run test model(s)** on the same windows, saving logits to disk
 4. **Compute KLD** between reference and test logit distributions
 
 ### Architecture
 
 ```
-Phase 1: FP8 Reference (TP8)          Phase 2: NVFP4 Test (TP4)
-┌─────────────────────┐               ┌─────────────────────┐
-│ SGLang Server       │               │ SGLang Server       │
-│ + logit capture     │               │ + logit capture     │
-│   patch             │               │   patch             │
-└────────┬────────────┘               └────────┬────────────┘
-         │ saves logits                        │ saves logits
-         ▼                                     ▼
-   /tmp/kld_ref/                         /tmp/kld_test/
-   ├── 0.safetensors                     ├── 0.safetensors
-   ├── 1.safetensors         ──KLD──►    ├── 1.safetensors
-   └── ...99.safetensors                 └── ...99.safetensors
+Phase 1: FP8 Reference (TP8)          Phase 2: Test Model (TP4)
++-----------------------+               +-----------------------+
+| SGLang Server         |               | SGLang Server         |
+| + logit capture       |               | + logit capture       |
+|   patch               |               |   patch               |
++-----------+-----------+               +-----------+-----------+
+            | saves logits                          | saves logits
+            v                                       v
+      /tmp/kld_ref/                           /tmp/kld_test/
+      +-- 0.safetensors                       +-- 0.safetensors
+      +-- 1.safetensors         --KLD-->      +-- 1.safetensors
+      +-- ...99.safetensors                   +-- ...99.safetensors
 ```
 
 ### Storage requirements
 
-- Per window: 2048 × 152,064 × 2 bytes ≈ **594 MB**
-- 100 windows = **~58 GB** per model
-- Total for ref + one test: **~120 GB**
-- Runtime: ~60s per phase (100 windows), KLD compute takes seconds
+- Per window: 2048 x 152,064 x 2 bytes = **594 MB** (text-only models)
+- Per window: 2048 x 248,320 x 2 bytes = **970 MB** (VLM models like AWQ)
+- 100 windows = **~58-95 GB** per model
+- Runtime: ~60-80s per phase (100 windows), KLD compute takes seconds
 
 ### What the patch does
 
@@ -102,7 +110,7 @@ logprobs_result = self.process_input_logprobs(input_logits, logits_metadata)
 # AFTER:
 input_logits = logits[input_logprob_indices]
 del logits
-_kld_maybe_save(input_logits)  # ← saves full [N, 152064] log-softmax
+_kld_maybe_save(input_logits)  # saves full [N, vocab_size] log-softmax
 logprobs_result = self.process_input_logprobs(input_logits, logits_metadata)
 ```
 
@@ -118,29 +126,24 @@ The hook:
 
 ### Prerequisites
 
-- Docker image: [`llm-pytorch-blackwell:nightly`](https://github.com/voipmonitor/llm-pytorch-blackwell)
-- 8× GPUs for FP8 reference (TP8), 4× GPUs for NVFP4 test (TP4)
-- ~120 GB free disk space in `/tmp`
-- Files from [`llm-pytorch-blackwell`](https://github.com/voipmonitor/llm-pytorch-blackwell) repo:
+- Docker image: `voipmonitor/llm-pytorch-blackwell:nightly` or `voipmonitor/llm-pytorch-blackwell:nightly-cuda132`
+- 8x GPUs for FP8 reference (TP8), 4x GPUs for quantized test models (TP4)
+- ~120 GB free disk space per model pair
+- Files from this repo:
   - `patches/sglang-kld-logit-capture.py`
   - `scripts/sglang_kld_eval.py`
 
 ### Step 1: Start container
 
 ```bash
-cd /path/to/llm-pytorch-blackwell
-
 docker run --rm -it \
-  --runtime nvidia --ipc host \
+  --gpus all --ipc host \
   --ulimit memlock=-1 --ulimit stack=67108864 \
   -p 5000:5000 \
   -v /root/.cache/huggingface:/root/.cache/huggingface \
   -v vllm-nightly-jit:/cache/jit \
-  -v /tmp/kld_ref:/tmp/kld_ref \
-  -v /tmp/kld_test:/tmp/kld_test \
-  -v $PWD/patches/sglang-kld-logit-capture.py:/workspace/sglang-kld-logit-capture.py:ro \
-  -v $PWD/scripts/sglang_kld_eval.py:/workspace/sglang_kld_eval.py:ro \
-  llm-pytorch-blackwell:nightly \
+  -v /tmp/kld:/tmp/kld \
+  voipmonitor/llm-pytorch-blackwell:nightly \
   bash
 ```
 
@@ -149,68 +152,63 @@ docker run --rm -it \
 Inside the container:
 
 ```bash
+pip install datasets  # needed for wikitext loading
 python /workspace/sglang-kld-logit-capture.py
 ```
 
-Expected output:
-```
-OK: KLD logit capture patch applied to /opt/sglang/python/sglang/srt/layers/logits_processor.py
-```
+> If the image already has the patch baked in (nightly images do), this step is a no-op.
 
 ### Step 3: Run FP8 reference server
 
 ```bash
-SGLANG_KLD_SAVE_DIR=/tmp/kld_ref \
+mkdir -p /tmp/kld/ref
+
+SGLANG_KLD_SAVE_DIR=/tmp/kld/ref \
 SGLANG_KLD_VOCAB_SIZE=152064 \
 SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK=0 \
+NCCL_P2P_DISABLE=1 \
 python -m sglang.launch_server \
   --model Qwen/Qwen3.5-397B-A17B-FP8 \
   --tp 8 --trust-remote-code \
-  --kv-cache-dtype fp8_e4m3 \
-  --mem-fraction-static 0.90 \
+  --kv-cache-dtype bfloat16 \
+  --mem-fraction-static 0.85 \
   --disable-custom-all-reduce \
+  --attention-backend triton \
   --host 0.0.0.0 --port 5000
 ```
 
-**Important env vars:**
-
-| Variable | Purpose |
-|----------|---------|
-| `SGLANG_KLD_SAVE_DIR` | Directory to save logit files. Hook is disabled if unset. |
-| `SGLANG_KLD_VOCAB_SIZE` | Actual vocab size (default: 152064). Trims TP padding columns. |
-| `SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK=0` | Forces non-chunked logits path where the hook is inserted. |
+> **Blackwell note:** `--attention-backend triton` is required for Qwen3.5-397B on Blackwell (SM120) due to hybrid GDN attention architecture. The server will fail without it.
 
 ### Step 4: Generate reference logits
 
-From a **second terminal**, exec into the running container:
+From a **second terminal**:
 
 ```bash
 docker exec -it <container_id> \
   python /workspace/sglang_kld_eval.py --phase ref \
     --server-url http://localhost:5000 \
     --tokenizer Qwen/Qwen3.5-397B-A17B-FP8 \
-    --logits-dir /tmp/kld_ref
+    --logits-dir /tmp/kld/ref
 ```
-
-This sends 100 sliding windows (2048 tokens, stride 512) from WikiText-2 to the server. Each window triggers the logit capture hook, saving a `{i}.safetensors` file.
 
 Expected output:
 ```
-Window 100/100: 0.6s, saved 594 MB
-Done. 100 windows in 61.6s
+Done. 100 windows in 69.1s
 Files saved: 100
 First file shape: torch.Size([2048, 152064])
 ```
 
 ### Step 5: Stop reference server, start test model
 
-Ctrl+C the server in the first terminal, then start the test model:
+Ctrl+C the server, then start a test model. Examples for each quantization type:
+
+#### NVFP4 (nvidia or lukealonso)
 
 ```bash
-# Clear test dir
-rm -rf /tmp/kld_test/*
+mkdir -p /tmp/kld/test_nvfp4
+rm -f /tmp/kld/test_nvfp4/*
 
-SGLANG_KLD_SAVE_DIR=/tmp/kld_test \
+SGLANG_KLD_SAVE_DIR=/tmp/kld/test_nvfp4 \
 SGLANG_KLD_VOCAB_SIZE=152064 \
 SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK=0 \
 NCCL_P2P_LEVEL=SYS \
@@ -220,79 +218,103 @@ python -m sglang.launch_server \
   --quantization modelopt_fp4 \
   --kv-cache-dtype fp8_e4m3 \
   --attention-backend triton \
+  --moe-runner-backend flashinfer_cutlass \
+  --fp4-gemm-backend flashinfer_cudnn \
   --mem-fraction-static 0.85 \
   --disable-custom-all-reduce \
   --host 0.0.0.0 --port 5000
 ```
 
-> **Note:** Do NOT add `--speculative-*` flags. Speculative decoding changes the logit computation path and will produce incorrect results.
+#### AWQ (QuantTrio)
+
+```bash
+mkdir -p /tmp/kld/test_awq
+rm -f /tmp/kld/test_awq/*
+
+SGLANG_KLD_SAVE_DIR=/tmp/kld/test_awq \
+SGLANG_KLD_VOCAB_SIZE=248320 \
+SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK=0 \
+NCCL_P2P_LEVEL=SYS \
+python -m sglang.launch_server \
+  --model QuantTrio/Qwen3.5-397B-A17B-AWQ \
+  --tp 4 --trust-remote-code \
+  --kv-cache-dtype fp8_e4m3 \
+  --attention-backend triton \
+  --mem-fraction-static 0.85 \
+  --disable-custom-all-reduce \
+  --host 0.0.0.0 --port 5000
+```
+
+> **AWQ note:** This model uses VLM format (`Qwen3_5MoeForConditionalGeneration`) with `vocab_size=248320`. Set `SGLANG_KLD_VOCAB_SIZE=248320`. The compute phase automatically handles vocab mismatch by truncating to the common 152,064 text tokens and re-normalizing. See [VLM models](#vlm-models-different-vocab-size) in Known Issues.
+
+> **Do NOT** add `--speculative-*` or `--quantization` flags for AWQ (SGLang auto-detects AWQ from the config).
 
 ### Step 6: Generate test logits
-
-From the second terminal:
 
 ```bash
 docker exec -it <container_id> \
   python /workspace/sglang_kld_eval.py --phase test \
     --server-url http://localhost:5000 \
     --tokenizer Qwen/Qwen3.5-397B-A17B-FP8 \
-    --logits-dir /tmp/kld_test
+    --logits-dir /tmp/kld/test_nvfp4   # or test_awq
 ```
 
-> **Important:** Always use the **same tokenizer** for both ref and test phases to ensure identical sliding windows.
+> **Important:** Always use the **same tokenizer** (`Qwen/Qwen3.5-397B-A17B-FP8`) for both ref and test phases to ensure identical sliding windows.
 
 ### Step 7: Compute KLD
 
-```bash
-python /workspace/sglang_kld_eval.py --phase compute \
-  --ref-dir /tmp/kld_ref \
-  --test-dirs /tmp/kld_test \
-  --test-names "nvidia/NVFP4"
-```
-
-You can compare multiple test models at once:
+Stop the server first (KLD compute needs GPU memory), then:
 
 ```bash
 python /workspace/sglang_kld_eval.py --phase compute \
-  --ref-dir /tmp/kld_ref \
-  --test-dirs /tmp/kld_test_nvidia /tmp/kld_test_sehyo \
-  --test-names "nvidia/NVFP4" "Sehyo/NVFP4"
+  --ref-dir /tmp/kld/ref \
+  --test-dirs /tmp/kld/test_awq /tmp/kld/test_nvfp4 \
+  --test-names "QuantTrio/AWQ" "nvidia/NVFP4"
 ```
+
+> If the server is still running and using all GPUs, use `CUDA_VISIBLE_DEVICES=4` (or any free GPU) to run compute on a different GPU.
 
 ---
 
 ## Automation Script
 
-For running the full pipeline with less manual work, use `scripts/kld_eval_pipeline.sh`:
+The full pipeline can be run with `scripts/kld_eval_pipeline.sh`:
 
 ```bash
-# Generate FP8 reference logits
-./scripts/kld_eval_pipeline.sh ref
-
-# Generate test model logits
-./scripts/kld_eval_pipeline.sh test nvidia/Qwen3.5-397B-A17B-NVFP4 \
-  --quantization modelopt_fp4 --attention-backend triton
-
-# Compute KLD for all test models
-./scripts/kld_eval_pipeline.sh compute
-
-# Or run everything in one go
-./scripts/kld_eval_pipeline.sh all nvidia/Qwen3.5-397B-A17B-NVFP4 \
-  --quantization modelopt_fp4 --attention-backend triton
+# Run everything: FP8 reference + all test models + compute KLD
+./scripts/kld_eval_pipeline.sh
 ```
 
-Configuration via environment variables:
+The script:
+1. Starts an FP8 reference server, generates reference logits, stops it
+2. For each test model: starts server, generates logits, stops it
+3. Computes KLD for all test models against the reference
+4. Prints results table
+
+### Configuration
+
+Edit the variables at the top of the script, or override via environment:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `KLD_IMAGE` | `llm-pytorch-blackwell:nightly` | Docker image |
+| `KLD_BASE_DIR` | `/tmp/kld` | Base directory for all logit files |
 | `KLD_REF_MODEL` | `Qwen/Qwen3.5-397B-A17B-FP8` | Reference model |
 | `KLD_REF_TP` | `8` | Reference TP size |
-| `KLD_TEST_TP` | `4` | Test model TP size |
-| `KLD_VOCAB_SIZE` | `152064` | Vocabulary size |
+| `KLD_TOKENIZER` | `Qwen/Qwen3.5-397B-A17B-FP8` | Tokenizer (same for all phases) |
 | `KLD_PORT` | `5000` | Server port |
-| `KLD_BASE_DIR` | `/tmp/kld` | Base directory for logits |
-| `KLD_HF_CACHE` | `/root/.cache/huggingface` | HuggingFace cache path |
+| `KLD_STARTUP_TIMEOUT` | `600` | Max seconds to wait for server startup |
+
+### Adding test models
+
+Test models are defined in the `TEST_MODELS` array inside the script. Each entry specifies the model path, display name, vocab size, and any extra server flags:
+
+```bash
+TEST_MODELS=(
+  "nvidia/Qwen3.5-397B-A17B-NVFP4|nvidia/NVFP4|152064|--tp 4 --quantization modelopt_fp4 ..."
+  "lukealonso/Qwen3.5-397B-A17B-NVFP4|lukealonso/NVFP4|152064|--tp 4 --quantization modelopt_fp4 ..."
+  "QuantTrio/Qwen3.5-397B-A17B-AWQ|QuantTrio/AWQ|248320|--tp 4 ..."
+)
+```
 
 ---
 
@@ -303,49 +325,82 @@ Configuration via environment variables:
 | Mean KLD | Quantization quality |
 |----------|---------------------|
 | < 0.01 | Near-lossless |
-| 0.01 – 0.05 | Good, minimal quality loss |
-| 0.05 – 0.1 | Noticeable quality loss |
+| 0.01 - 0.05 | Good, minimal quality loss |
+| 0.05 - 0.1 | Noticeable quality loss |
 | > 0.1 | Significant quality loss |
 
 ### What the metrics mean
 
-- **Mean KLD** — average divergence across all token positions. The primary quality metric.
-- **Median KLD** — if much lower than mean, the distribution has a heavy right tail (a few positions are very wrong, most are fine).
-- **P95 / P99** — tail behavior. High P95 means 5% of positions have substantially different predictions than the reference.
-- **Max KLD** — worst single position. Values > 10 indicate completely broken predictions at some positions.
+- **Mean KLD** -- average divergence across all token positions. The primary quality metric.
+- **Median KLD** -- if much lower than mean, the distribution has a heavy right tail (a few positions are very wrong, most are fine).
+- **P95 / P99** -- tail behavior. High P95 means 5% of positions have substantially different predictions than the reference.
+- **Max KLD** -- worst single position. Values > 10 indicate completely broken predictions at some positions.
 
 ### KLD formula
 
 For each token position, KLD is computed as:
 
 ```
-KL(P_ref || Q_test) = Σ_x  P_ref(x) · (log P_ref(x) - log Q_test(x))
+KL(P_ref || Q_test) = sum_x  P_ref(x) * (log P_ref(x) - log Q_test(x))
 ```
 
-Where the sum is over all 152,064 vocabulary tokens. This measures how many bits of information are lost when using the test model's distribution instead of the reference.
+Where the sum is over all vocabulary tokens. This measures how many nats of information are lost when using the test model's distribution instead of the reference.
+
+### Determinism
+
+KLD evaluation is fully deterministic -- running the same model twice on the same inputs produces bit-identical results. This makes it reliable for A/B comparisons.
 
 ---
 
 ## Known Issues
 
+### VLM models (different vocab size)
+
+Some checkpoints use VLM format (`Qwen3_5MoeForConditionalGeneration`) with `vocab_size=248320` instead of the text-only `vocab_size=152064`. Examples: `QuantTrio/Qwen3.5-397B-A17B-AWQ`.
+
+**Impact on KLD capture:**
+- Set `SGLANG_KLD_VOCAB_SIZE=248320` when running the server
+- VLM models may save **2 files per request** (the logits processor fires twice per forward pass). The compute phase handles this automatically, but if you see twice as many files as expected, only the even-numbered files (0, 2, 4, ...) correspond to the actual sliding windows.
+
+**Impact on KLD compute:**
+- The compute script automatically detects vocab size mismatch and truncates both distributions to the common 152,064 text tokens, then re-normalizes via `logsumexp`. This is mathematically equivalent to computing log-softmax over text tokens only.
+- Visual tokens (indices 152064-248319) are irrelevant for text-only benchmarks like WikiText.
+
+**If you get 2x files from a VLM model**, create aligned symlinks before computing:
+```bash
+mkdir -p /tmp/kld/test_awq_aligned
+for i in $(seq 0 99); do
+  ln -sf "/tmp/kld/test_awq/$((i*2)).safetensors" "/tmp/kld/test_awq_aligned/${i}.safetensors"
+done
+# Then use test_awq_aligned as the test dir
+```
+
+### AWQ + FusedMoE modules_to_not_convert
+
+AWQ checkpoints with `modules_to_not_convert` (like `QuantTrio/Qwen3.5-397B-A17B-AWQ` which keeps layer 0 in BF16) require SGLang PR [#20439](https://github.com/sgl-project/sglang/pull/20439) or later. Without this fix, loading fails with `KeyError: 'model.layers.0.mlp.experts.w13_weight'` because the FusedMoE layer doesn't check the skip list.
+
+### Blackwell attention backend
+
+On Blackwell GPUs (SM120), Qwen3.5-397B requires `--attention-backend triton` due to its hybrid GDN attention architecture. The server will crash with an `AssertionError` without this flag. This applies to both FP8 reference and all test models.
+
 ### Sehyo/Qwen3.5-397B-A17B-NVFP4 produces NaN on SGLang
 
-Sehyo's checkpoint uses `compressed-tensors` quantization format. SGLang's `compressed-tensors` weight loader does not support `linear_attn` layers used by Qwen3.5-397B's mixed attention architecture (3 linear attention layers + 1 full attention, repeating). All `linear_attn` weights fail to load (`Parameter not found in params_dict`), leaving 45 out of 60 attention layers uninitialized, which produces 100% NaN logits.
-
-The nvidia checkpoint works because it uses the `modelopt` format which has a dedicated loader that correctly maps `linear_attn` weights.
+Sehyo's checkpoint uses `compressed-tensors` quantization format. SGLang's `compressed-tensors` weight loader does not support `linear_attn` layers used by Qwen3.5-397B's mixed attention architecture (3 linear attention layers + 1 full attention, repeating). All `linear_attn` weights fail to load, leaving 45 out of 60 attention layers uninitialized, producing 100% NaN logits.
 
 **Workaround:** None on current SGLang. vLLM may have better `compressed-tensors` support for this architecture.
 
 ### TP padding in logits
 
-With tensor parallelism, SGLang pads the vocabulary dimension to a multiple of TP size. For Qwen3.5 (vocab_size=152,064) with TP8, logits are padded to 248,320 columns. The patch trims these padding columns via `SGLANG_KLD_VOCAB_SIZE` before computing log-softmax. Without trimming, the padding columns (containing garbage values) corrupt the probability distribution.
-
-If you see logit shapes like `[2048, 248320]` instead of `[2048, 152064]`, set `SGLANG_KLD_VOCAB_SIZE=152064`.
+With tensor parallelism, SGLang pads the vocabulary dimension to a multiple of TP size. The patch trims these padding columns via `SGLANG_KLD_VOCAB_SIZE` before computing log-softmax. Without trimming, the padding columns (containing garbage values) corrupt the probability distribution.
 
 ### Chunked logits processing
 
-The patch only hooks the non-chunked logits path. Set `SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK=0` to ensure this path is used. With 2048-token windows this is fine — chunking is only needed for very large prefills.
+The patch only hooks the non-chunked logits path. Set `SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK=0` to ensure this path is used. With 2048-token windows this is fine -- chunking is only needed for very large prefills.
 
 ### Speculative decoding
 
 Do not enable speculative decoding (`--speculative-*` flags) during KLD evaluation. Speculative decoding uses a different logit computation path and the capture hook may save incorrect or extra logits.
+
+### NaN logits in quantized models
+
+Some quantized checkpoints produce NaN logits at certain positions (observed with MiniMax-M2.5-NVFP4: 8% of positions had NaN). The compute script automatically detects and excludes NaN positions, reporting the count in the results.
