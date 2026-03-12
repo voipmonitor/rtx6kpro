@@ -30,6 +30,8 @@ All numbers are decode tok/s unless noted.
 
 | GPUs | Quant | Engine | MTP | Decode tok/s | Notes |
 |:----:|:-----:|:------:|:---:|:------------:|-------|
+| 4x | **AWQ-INT4** | SGLang | MTP=5 | **152** | QuantTrio, best quality+speed ([details](inference-throughput/)) |
+| 4x | NVFP4 | SGLang | MTP=5 | 132 | lukealonso ([details](inference-throughput/)) |
 | 4x | NVFP4 | SGLang | No | 42-51 | kcramp, Ixtrix |
 | 4x | NVFP4 | SGLang | Yes (3-step) | 85 | Festr (unstable) |
 | 4x | NVFP4 | vLLM | No | 70-86 | Multiple users, stable |
@@ -264,6 +266,8 @@ At high concurrency with 500W power limit, NVFP4 on 2× GPUs nearly matches FP8 
 
 | Model | GPUs | Quant | Engine | MTP | Best tok/s |
 |-------|:----:|:-----:|:------:|:---:|:----------:|
+| Qwen3.5-397B | 4x | **AWQ-INT4** | SGLang | MTP=5 | **152** |
+| Qwen3.5-397B | 4x | NVFP4 | SGLang | MTP=5 | 132 |
 | Qwen3.5-397B | 4x | NVFP4 | vLLM | MTP=2 | 130 |
 | Qwen3.5-397B | 8x | NVFP4 | SGLang | Yes | 350 |
 | Kimi K2.5 | 8x | INT4 | SGLang | No (no MTP) | 101 |

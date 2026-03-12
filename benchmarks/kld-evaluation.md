@@ -51,22 +51,21 @@ nvidia/Qwen3.5-397B-A17B-NVFP4            0.108526     0.027302   0.467703   1.4
 
 ### Throughput Benchmark (MTP Speculative Decoding)
 
-All models tested with identical SGLang configuration, MTP enabled (NEXTN, 5 steps, 6 draft tokens), `--mamba-scheduler-strategy extra_buffer`, 4x RTX PRO 6000 Blackwell (TP4). Throughput measured from server-side `sglang:gen_throughput` Prometheus metric.
+All models tested with identical SGLang configuration, MTP enabled (NEXTN, 5 steps, 6 draft tokens), `--mamba-scheduler-strategy extra_buffer`, 4x RTX PRO 6000 Blackwell (TP4). Throughput measured from server-side `sglang:gen_throughput` Prometheus metric (median, 30s per cell, 4s warmup skip).
 
 ```
-Decode throughput (tok/s), context=0
+Aggregate decode throughput (tok/s), context=0
 =========================================================================
 
-Model                                 C=1    C=4    C=16    C=32
----------------------------------------------------------------------
-QuantTrio/Qwen3.5-397B-A17B-AWQ      125    412    1013    1470
-lukealonso/Qwen3.5-397B-A17B-NVFP4   129    361     879    1063
-nvidia/Qwen3.5-397B-A17B-NVFP4       111    343     828    1032
+Model                                 C=1    C=8    C=16    C=32    C=64
+------------------------------------------------------------------------
+QuantTrio/Qwen3.5-397B-A17B-AWQ      152    665     976    1516    1662
+lukealonso/Qwen3.5-397B-A17B-NVFP4   132    581     852    1191    1202
 ```
 
-**AWQ wins on both quality AND throughput** at high concurrency. At C=32, AWQ is 38% faster than NVFP4 (1470 vs 1063/1032 tok/s). At C=1 all models are similar (~110-130 tok/s).
+**AWQ wins on both quality AND throughput** at every concurrency level. 15% faster at C=1, growing to 38% at C=64 where AWQ still gains throughput (1662 tok/s) while NVFP4 plateaus (1191→1202). Prefill speed is identical (~16-17k tok/s at 16k context).
 
-For full reproduction details, server launch commands, and the benchmark script, see [inference-throughput/](inference-throughput/).
+For full decode + prefill tables across context lengths, reproduction details, and the benchmark script, see [inference-throughput/](inference-throughput/).
 
 #### MTP setup (critical)
 

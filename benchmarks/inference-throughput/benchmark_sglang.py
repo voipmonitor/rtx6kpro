@@ -14,7 +14,9 @@ Usage:
 import argparse
 import asyncio
 import json
+import random
 import re
+import string
 import sys
 import time
 from dataclasses import dataclass, field, asdict
@@ -130,6 +132,15 @@ class TUIState:
     errors: dict = field(default_factory=dict)   # (ctx, conc) -> num_errors
     concurrency_levels: list = field(default_factory=list)
     context_lengths: list = field(default_factory=list)
+    # Prefill results: ctx -> {ttft, tok_per_sec}
+    prefill_results: dict = field(default_factory=dict)
+    prefill_contexts: list = field(default_factory=list)
+    prefill_phase: bool = False
+    # Server limits
+    kv_cache_budget: int = 0
+    max_running_requests: int = 0
+    skipped_cells: int = 0
+    max_tokens: int = 0
     # Timing
     cell_times: list = field(default_factory=list)
 
@@ -376,7 +387,8 @@ async def run_one_cell(
     ]
 
     # Monitor loop — collect server gen_throughput samples for accurate measurement
-    metrics_interval = 2.0
+    metrics_interval = 1.0
+    warmup_seconds = 4.0  # skip early samples (CUDA graph warmup)
     last_metrics_time = 0.0
     gen_throughput_samples = []
 
@@ -397,8 +409,8 @@ async def run_one_cell(
             state.srv_utilization = extract_metric(metrics, "sglang:utilization")
             state.srv_spec_accept_rate = extract_metric(metrics, "sglang:spec_accept_rate")
             state.srv_spec_accept_length = extract_metric(metrics, "sglang:spec_accept_length")
-            # Collect gen_throughput samples (skip 0s from idle periods)
-            if state.srv_gen_throughput > 0:
+            # Collect gen_throughput samples after warmup (skip ramp-up period)
+            if state.srv_gen_throughput > 0 and elapsed > warmup_seconds:
                 gen_throughput_samples.append(state.srv_gen_throughput)
             last_metrics_time = now
 
@@ -439,14 +451,14 @@ async def run_one_cell(
     if final_gen_throughput > 0:
         gen_throughput_samples.append(final_gen_throughput)
 
-    # Use server-side gen_throughput as the primary metric
-    avg_gen_throughput = mean(gen_throughput_samples) if gen_throughput_samples else 0.0
+    # Use server-side gen_throughput as the primary metric (median for robustness)
+    avg_gen_throughput = median(gen_throughput_samples) if gen_throughput_samples else 0.0
 
-    # Client-side aggregate (fallback / secondary)
+    # Client-side stats
     successful = [r for r in stream_results if r.error is None]
     total_tokens = sum(r.total_tokens for r in stream_results)
-    client_tps = total_tokens / wall_time if wall_time > 0 else 0.0
-    per_req_tps = mean([r.tokens_per_sec for r in successful]) if successful else 0.0
+    # Derive per-request from server metric for consistency (aggregate / concurrency)
+    per_req_tps = avg_gen_throughput / concurrency if concurrency > 0 else 0.0
     ttfts = [r.ttft for r in successful if r.ttft > 0]
 
     cell = CellResult(
@@ -495,22 +507,40 @@ def build_display(state: TUIState) -> Layout:
     header_text.append("sglang Benchmark", style="bold cyan")
     header_text.append(f"  {state.model_name} @ {state.server_url}")
     header_text.append(f"  |  {state.total_tests} tests  |  {state.cell_duration:.0f}s each")
+    if state.kv_cache_budget > 0 or state.max_running_requests > 0:
+        header_text.append("  |  ", style="dim")
+        if state.kv_cache_budget > 0:
+            header_text.append(f"KV: {state.kv_cache_budget:,}", style="cyan")
+        if state.max_running_requests > 0:
+            if state.kv_cache_budget > 0:
+                header_text.append("  ", style="dim")
+            header_text.append(f"MaxReqs: {state.max_running_requests}", style="cyan")
+        if state.skipped_cells > 0:
+            header_text.append(f"  ({state.skipped_cells} skipped)", style="yellow")
     layout["header"].update(Panel(header_text, style="bold"))
 
     # Current test panel
     if state.cell_running:
         elapsed = time.monotonic() - state.cell_start
-        pct = min(elapsed / state.cell_duration, 1.0) if state.cell_duration > 0 else 0
-        bar_width = 30
-        filled = int(pct * bar_width)
-        bar = "[green]" + "=" * filled + ">" + "[/green]" + " " * (bar_width - filled - 1)
+        if state.prefill_phase:
+            cell_text = (
+                f"[bold magenta]PREFILL[/bold magenta]  ctx={format_context(state.current_context)}\n"
+                f"  Elapsed: {elapsed:.1f}s\n"
+                f"  Populating radix cache...\n"
+                f"  Test [bold]{state.completed_tests + 1}[/bold] of {state.total_tests}"
+            )
+        else:
+            pct = min(elapsed / state.cell_duration, 1.0) if state.cell_duration > 0 else 0
+            bar_width = 30
+            filled = int(pct * bar_width)
+            bar = "[green]" + "=" * filled + ">" + "[/green]" + " " * (bar_width - filled - 1)
 
-        cell_text = (
-            f"[bold]C={state.current_concurrency}, ctx={format_context(state.current_context)}[/bold]\n"
-            f"  [{bar}] {elapsed:.0f}/{state.cell_duration:.0f}s\n"
-            f"  Server: [bold yellow]{state.cell_live_tps:.1f}[/bold yellow] tok/s (gen_throughput)\n"
-            f"  Test [bold]{state.completed_tests + 1}[/bold] of {state.total_tests}"
-        )
+            cell_text = (
+                f"[bold]DECODE[/bold]  C={state.current_concurrency}, ctx={format_context(state.current_context)}\n"
+                f"  [{bar}] {elapsed:.0f}/{state.cell_duration:.0f}s\n"
+                f"  Server: [bold yellow]{state.cell_live_tps:.1f}[/bold yellow] tok/s (gen_throughput)\n"
+                f"  Test [bold]{state.completed_tests + 1}[/bold] of {state.total_tests}"
+            )
     else:
         cell_text = "[dim]Waiting...[/dim]"
     layout["current_test"].update(Panel(cell_text, title="Current Test", border_style="cyan"))
@@ -533,7 +563,7 @@ def build_display(state: TUIState) -> Layout:
     for conc in state.concurrency_levels:
         results_table.add_column(str(conc), justify="right", min_width=7)
 
-    # Determine color thresholds from existing results
+    # Determine color thresholds from existing results (exclude skipped=-1)
     all_values = [v for v in state.results.values() if v > 0]
     if all_values:
         p25 = percentile(all_values, 25)
@@ -547,6 +577,10 @@ def build_display(state: TUIState) -> Layout:
             key = (ctx, conc)
             if key in state.results:
                 val = state.results[key]
+                if val < 0:
+                    needed = conc * (ctx + state.max_tokens)
+                    row.append(f"[dim]N/A ({needed // 1024}k)[/dim]")
+                    continue
                 errs = state.errors.get(key, 0)
                 if val > p75 and p75 > 0:
                     style = "bold green"
@@ -562,7 +596,33 @@ def build_display(state: TUIState) -> Layout:
                 row.append("[dim]...[/dim]")
         results_table.add_row(*row)
 
-    layout["results"].update(Panel(results_table))
+    # Prefill table (shown alongside decode results)
+    if state.prefill_contexts:
+        prefill_table = Table(title="Prefill Speed (C=1)", border_style="magenta", expand=True)
+        prefill_table.add_column("Context", style="bold cyan", min_width=6)
+        prefill_table.add_column("TTFT", justify="right", min_width=6)
+        prefill_table.add_column("Prefill", justify="right", min_width=6)
+        prefill_table.add_column("tok/s", justify="right", min_width=8)
+        for ctx in state.prefill_contexts:
+            if ctx in state.prefill_results:
+                pr = state.prefill_results[ctx]
+                prefill_table.add_row(
+                    format_context(ctx),
+                    f"{pr['ttft']:.2f}s",
+                    f"{pr.get('prefill_time', pr['ttft']):.2f}s",
+                    f"[bold green]{pr['tok_per_sec']:,.0f}[/bold green]",
+                )
+            else:
+                prefill_table.add_row(format_context(ctx), "[dim]...[/dim]", "[dim]...[/dim]", "[dim]...[/dim]")
+
+        results_layout = Layout()
+        results_layout.split_row(
+            Layout(Panel(prefill_table), ratio=1),
+            Layout(Panel(results_table), ratio=3),
+        )
+        layout["results"].update(results_layout)
+    else:
+        layout["results"].update(Panel(results_table))
 
     # Footer - overall progress
     if state.total_tests > 0:
@@ -599,51 +659,11 @@ async def run_benchmark(args):
     concurrency_levels = [int(x) for x in args.concurrency.split(",")]
     context_lengths = [int(x) for x in args.contexts.split(",")]
     base_url = f"http://{args.host}:{args.port}"
-
-    # Initialize state
-    state = TUIState(
-        model_name=args.model,
-        server_url=f"{args.host}:{args.port}",
-        total_tests=len(concurrency_levels) * len(context_lengths),
-        concurrency_levels=concurrency_levels,
-        context_lengths=context_lengths,
-        overall_start=time.monotonic(),
-    )
-
-    # Pre-generate context padding
     console = Console()
-    console.print("[bold]Pre-generating context padding texts...[/bold]")
-    context_cache = {}
 
-    if args.cached_prefill:
-        # Cached prefill mode: generate ONE base text for the largest context,
-        # then use prefixes of it for smaller contexts. This ensures all context
-        # lengths share a common prefix, maximizing radix cache hits.
-        max_ctx = max(c for c in context_lengths if c > 0) if any(c > 0 for c in context_lengths) else 0
-        if max_ctx > 0:
-            console.print(f"  [cyan]Cached prefill mode:[/cyan] generating {format_context(max_ctx)} base text...")
-            base_text = generate_padding_text(max_ctx)
-            for ctx in context_lengths:
-                if ctx > 0:
-                    # Truncate base text to approximate the target token count
-                    target_chars = ctx * CHARS_PER_TOKEN
-                    context_cache[ctx] = base_text[:target_chars]
-                else:
-                    context_cache[ctx] = ""
-        else:
-            for ctx in context_lengths:
-                context_cache[ctx] = ""
-    else:
-        for ctx in context_lengths:
-            if ctx > 0:
-                console.print(f"  Generating {format_context(ctx)} tokens padding...")
-                context_cache[ctx] = generate_padding_text(ctx)
-            else:
-                context_cache[ctx] = ""
-
-    console.print("[green]Done.[/green]\n")
-
-    # Check server health
+    # --- Step 1: Connect to server and read limits ---
+    server_context_length = 0
+    max_running = None
     async with httpx.AsyncClient() as check_client:
         try:
             resp = await check_client.get(f"{base_url}/v1/models", timeout=10.0)
@@ -652,7 +672,86 @@ async def run_benchmark(args):
         except Exception as e:
             console.print(f"[red]Cannot connect to server at {base_url}: {e}[/red]")
             console.print("Make sure sglang is running and the port is correct.")
-            return []
+            return [], {}
+
+        try:
+            resp = await check_client.get(f"{base_url}/get_server_info", timeout=10.0)
+            server_info = resp.json()
+            if args.max_total_tokens == 0:
+                kv_budget = server_info.get("max_total_num_tokens", 0)
+                if kv_budget:
+                    args.max_total_tokens = int(kv_budget)
+                    console.print(f"[cyan]KV cache budget:[/cyan] {args.max_total_tokens:,} tokens")
+            max_running = server_info.get("max_running_requests")
+            if max_running:
+                max_running = int(max_running)
+                over = [c for c in concurrency_levels if c > max_running]
+                if over:
+                    concurrency_levels = [c for c in concurrency_levels if c <= max_running]
+                    console.print(f"[cyan]Max running requests:[/cyan] {max_running} (dropped C={','.join(str(c) for c in over)})")
+            server_context_length = server_info.get("context_length") or 0
+            if server_context_length:
+                console.print(f"[cyan]Model context length:[/cyan] {server_context_length:,} tokens")
+        except Exception:
+            console.print("[yellow]Could not read /get_server_info. No auto-detection of limits.[/yellow]")
+
+    # --- Step 2: Build prefill context list (up to 200k or model limit) ---
+    PREFILL_CANDIDATES = [8192, 16384, 32768, 65536, 131072]
+    max_prefill = min(131072, server_context_length - 64) if server_context_length > 0 else 131072
+    prefill_contexts = [c for c in PREFILL_CANDIDATES if c <= max_prefill]
+    if not prefill_contexts and max_prefill > 0:
+        prefill_contexts = [max_prefill]
+    console.print(f"[cyan]Prefill tests:[/cyan] {[format_context(c) for c in prefill_contexts]}")
+
+    # --- Step 3: Generate unique padding text per context length ---
+    # Each context gets a unique prefix so radix cache cannot match across lengths.
+    # Within same length, same text is reused → decode phase gets cache hit.
+    all_ctx_sizes = sorted(set(prefill_contexts + [c for c in context_lengths if c > 0]))
+    max_ctx = max(all_ctx_sizes) if all_ctx_sizes else 0
+    context_cache = {}
+    run_id = ''.join(random.choices(string.ascii_lowercase, k=12))
+    if max_ctx > 0:
+        console.print(f"[bold]Generating padding texts (run={run_id}, up to {format_context(max_ctx)})...[/bold]")
+        base_text = generate_padding_text(max_ctx)
+        for ctx in all_ctx_sizes:
+            # Unique prefix per run + context length → no cross-run or cross-length cache hits
+            prefix = f"[BENCH_{run_id}_CTX_{ctx}] "
+            target_chars = ctx * CHARS_PER_TOKEN
+            text = prefix + base_text
+            context_cache[ctx] = text[:target_chars]
+    context_cache[0] = ""
+    console.print("[green]Done.[/green]\n")
+
+    # --- Step 4: Initialize TUI state ---
+    state = TUIState(
+        model_name=args.model,
+        server_url=f"{args.host}:{args.port}",
+        total_tests=len(concurrency_levels) * len(context_lengths),
+        concurrency_levels=concurrency_levels,
+        context_lengths=context_lengths,
+        overall_start=time.monotonic(),
+    )
+    if max_running:
+        state.max_running_requests = int(max_running)
+    state.max_tokens = args.max_tokens
+    state.prefill_contexts = prefill_contexts
+
+    # Mark skipped decode cells
+    if args.max_total_tokens > 0:
+        state.kv_cache_budget = args.max_total_tokens
+        runnable = sum(
+            1 for ctx in context_lengths for conc in concurrency_levels
+            if conc * (ctx + args.max_tokens) <= args.max_total_tokens
+        )
+        skipped = state.total_tests - runnable
+        state.skipped_cells = skipped
+        for ctx in context_lengths:
+            for conc in concurrency_levels:
+                if conc * (ctx + args.max_tokens) > args.max_total_tokens:
+                    state.results[(ctx, conc)] = -1
+
+    # Add prefill tests to total count
+    state.total_tests += len(prefill_contexts)
 
     # Run benchmark
     global _partial_results
@@ -660,35 +759,144 @@ async def run_benchmark(args):
     max_conc = max(concurrency_levels)
     limits = httpx.Limits(max_connections=max_conc + 20, max_keepalive_connections=max_conc + 10)
 
+    async def measure_ttft(client, messages):
+        """Send one streaming request with max_tokens=1, return TTFT in seconds."""
+        payload = {
+            "model": args.model,
+            "messages": messages,
+            "stream": True,
+            "max_tokens": 1,
+        }
+        t0 = time.monotonic()
+        try:
+            async with client.stream(
+                "POST", f"{base_url}/v1/chat/completions",
+                json=payload,
+                timeout=httpx.Timeout(600.0, connect=30.0),
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    if "choices" in data and len(data["choices"]) > 0:
+                        delta = data["choices"][0].get("delta", {})
+                        if delta.get("content") or delta.get("reasoning") or delta.get("reasoning_content"):
+                            return time.monotonic() - t0
+        except Exception:
+            pass
+        return time.monotonic() - t0
+
     async with httpx.AsyncClient(limits=limits) as client:
         with Live(build_display(state), refresh_per_second=2, console=console) as live:
-            # Track which contexts have been warmed up (for cached prefill)
-            warmed_contexts = set()
 
+            # === Phase 1: Prefill benchmark (C=1, max_tokens=1) ===
+            # First measure baseline TTFT (ctx=0) to subtract overhead
+            state.prefill_phase = True
+            state.current_context = 0
+            state.cell_running = True
+            state.cell_start = time.monotonic()
+            live.update(build_display(state))
+
+            baseline_msgs = [{"role": "user", "content": "Say OK."}]
+            baseline_samples = []
+            for _ in range(5):
+                t = await measure_ttft(client, baseline_msgs)
+                baseline_samples.append(t)
+            baseline_ttft = median(baseline_samples)
+            state.cell_running = False
+
+            # Now measure each prefill context
+            # Small contexts (<16k): repeat 3× and average for stability
+            # Large contexts: single measurement (long enough to be accurate)
+            REPEAT_THRESHOLD = 8192
+
+            for ctx in prefill_contexts:
+                state.current_concurrency = 1
+                state.current_context = ctx
+                state.cell_running = True
+                state.cell_start = time.monotonic()
+                state.cell_duration = 0
+                live.update(build_display(state))
+
+                repeats = 3 if ctx < REPEAT_THRESHOLD else 1
+                ttft_samples = []
+                for r in range(repeats):
+                    # Each repeat needs unique text to avoid cache
+                    if r == 0:
+                        msgs = build_messages(ctx, context_cache[ctx])
+                    else:
+                        # Generate variant with different prefix for repeat runs
+                        prefix = f"[BENCH_{run_id}_CTX_{ctx}_R{r}] "
+                        orig_prefix_len = len(f"[BENCH_{run_id}_CTX_{ctx}] ")
+                        variant_text = prefix + context_cache[ctx][orig_prefix_len:]
+                        msgs = build_messages(ctx, variant_text)
+                    t = await measure_ttft(client, msgs)
+                    ttft_samples.append(t)
+
+                raw_ttft = median(ttft_samples)
+                # Subtract baseline to get pure prefill time
+                prefill_time = max(raw_ttft - baseline_ttft, 0.001)
+                tok_per_sec = ctx / prefill_time
+
+                state.prefill_results[ctx] = {
+                    "ttft": raw_ttft,
+                    "prefill_time": prefill_time,
+                    "tok_per_sec": tok_per_sec,
+                    "baseline": baseline_ttft,
+                }
+
+                state.cell_running = False
+                state.completed_tests += 1
+                cell_time = time.monotonic() - state.cell_start
+                state.cell_times.append(cell_time)
+                live.update(build_display(state))
+                await asyncio.sleep(1.0)
+
+            # Re-cache the primary text for decode phase (repeat runs used variants)
+            for ctx in prefill_contexts:
+                if ctx < REPEAT_THRESHOLD:
+                    msgs = build_messages(ctx, context_cache[ctx])
+                    await measure_ttft(client, msgs)
+
+            # Warm radix cache for decode contexts not already tested in prefill
             for ctx in context_lengths:
-                # Cached prefill warmup: send one request to populate radix cache
-                if args.cached_prefill and ctx > 0 and ctx not in warmed_contexts:
-                    state.cell_running = False
-                    live.update(build_display(state))
+                if ctx > 0 and ctx not in prefill_contexts:
                     warmup_msgs = build_messages(ctx, context_cache[ctx])
                     warmup_payload = {
-                        "model": args.model,
-                        "messages": warmup_msgs,
-                        "stream": False,
-                        "max_tokens": 1,
+                        "model": args.model, "messages": warmup_msgs,
+                        "stream": False, "max_tokens": 1,
                     }
                     try:
-                        resp = await client.post(
+                        await client.post(
                             f"{base_url}/v1/chat/completions",
                             json=warmup_payload,
-                            timeout=httpx.Timeout(300.0, connect=30.0),
+                            timeout=httpx.Timeout(600.0, connect=30.0),
                         )
                     except Exception:
                         pass
-                    warmed_contexts.add(ctx)
                     await asyncio.sleep(1.0)
 
+            # === Phase 2: Decode benchmark (cached prefill, pure decode speed) ===
+            state.prefill_phase = False
+            for ctx in context_lengths:
                 for conc in concurrency_levels:
+                    # Skip cells that exceed token budget
+                    cell_total = conc * (ctx + args.max_tokens)
+                    if args.max_total_tokens > 0 and cell_total > args.max_total_tokens:
+                        state.results[(ctx, conc)] = -1  # mark as skipped
+                        cell = CellResult(concurrency=conc, context_tokens=ctx, aggregate_tps=-1)
+                        all_results.append(cell)
+                        _partial_results = all_results
+                        state.completed_tests += 1
+                        live.update(build_display(state))
+                        continue
+
                     cell_start = time.monotonic()
 
                     try:
@@ -708,7 +916,6 @@ async def run_benchmark(args):
                         _partial_results = all_results
                     except Exception as e:
                         console.print(f"[red]Cell C={conc} ctx={format_context(ctx)} failed: {e}[/red]")
-                        # Record zero result
                         cell = CellResult(concurrency=conc, context_tokens=ctx)
                         all_results.append(cell)
                         _partial_results = all_results
@@ -723,15 +930,36 @@ async def run_benchmark(args):
                     # Brief pause between cells to let server settle
                     await asyncio.sleep(2.0)
 
-    return all_results
+    return all_results, state.prefill_results
 
 
 # ---------------------------------------------------------------------------
 # Results output
 # ---------------------------------------------------------------------------
 
-def print_final_results(results: list, concurrency_levels: list, context_lengths: list, console: Console):
+def print_final_results(results: list, concurrency_levels: list, context_lengths: list,
+                        console: Console, prefill_results: dict = None):
     console.print("\n")
+
+    # Prefill table
+    if prefill_results:
+        baseline = next(iter(prefill_results.values()), {}).get("baseline", 0)
+        pt = Table(title=f"Prefill Speed (C=1, baseline TTFT={baseline:.3f}s subtracted)",
+                   border_style="magenta")
+        pt.add_column("Context", style="bold cyan")
+        pt.add_column("TTFT (s)", justify="right")
+        pt.add_column("Prefill (s)", justify="right")
+        pt.add_column("Prefill tok/s", justify="right")
+        for ctx in sorted(prefill_results.keys()):
+            pr = prefill_results[ctx]
+            pt.add_row(
+                format_context(ctx),
+                f"{pr['ttft']:.2f}",
+                f"{pr.get('prefill_time', pr['ttft']):.2f}",
+                f"{pr['tok_per_sec']:,.0f}",
+            )
+        console.print(pt)
+        console.print()
 
     # Aggregate throughput table
     table = Table(title="Aggregate Throughput (tok/s)", border_style="green")
@@ -744,7 +972,9 @@ def print_final_results(results: list, concurrency_levels: list, context_lengths
         row = [format_context(ctx)]
         for conc in concurrency_levels:
             r = result_map.get((ctx, conc))
-            if r:
+            if r and r.aggregate_tps < 0:
+                row.append("skip")
+            elif r:
                 val = f"{r.aggregate_tps:.1f}"
                 if r.num_errors > 0:
                     val += f" ({r.num_errors}e)"
@@ -765,7 +995,9 @@ def print_final_results(results: list, concurrency_levels: list, context_lengths
         row = [format_context(ctx)]
         for conc in concurrency_levels:
             r = result_map.get((ctx, conc))
-            if r and r.per_request_avg_tps > 0:
+            if r and r.aggregate_tps < 0:
+                row.append("skip")
+            elif r and r.per_request_avg_tps > 0:
                 row.append(f"{r.per_request_avg_tps:.1f}")
             else:
                 row.append("-")
@@ -783,7 +1015,9 @@ def print_final_results(results: list, concurrency_levels: list, context_lengths
         row = [format_context(ctx)]
         for conc in concurrency_levels:
             r = result_map.get((ctx, conc))
-            if r and r.ttft_avg > 0:
+            if r and r.aggregate_tps < 0:
+                row.append("skip")
+            elif r and r.ttft_avg > 0:
                 row.append(f"{r.ttft_avg:.2f}")
             else:
                 row.append("-")
@@ -792,17 +1026,27 @@ def print_final_results(results: list, concurrency_levels: list, context_lengths
     console.print(table3)
 
 
-def save_results(results: list, args, filepath: str):
+def save_results(results: list, args, filepath: str, prefill_results: dict = None):
     concurrency_levels = [int(x) for x in args.concurrency.split(",")]
     context_lengths = [int(x) for x in args.contexts.split(",")]
 
-    # Build summary table
+    # Build summary table (exclude skipped)
     summary = {}
-    for r in results:
+    actual_results = [r for r in results if r.aggregate_tps >= 0]
+    for r in actual_results:
         ctx_key = str(r.context_tokens)
         if ctx_key not in summary:
             summary[ctx_key] = {}
         summary[ctx_key][str(r.concurrency)] = r.aggregate_tps
+
+    # Prefill summary
+    prefill_summary = {}
+    if prefill_results:
+        for ctx, pr in sorted(prefill_results.items()):
+            prefill_summary[str(ctx)] = {
+                "ttft_seconds": round(pr["ttft"], 3),
+                "tok_per_sec": round(pr["tok_per_sec"], 0),
+            }
 
     output = {
         "metadata": {
@@ -811,10 +1055,12 @@ def save_results(results: list, args, filepath: str):
             "timestamp": datetime.now().isoformat(),
             "duration_per_test": args.duration,
             "max_tokens": args.max_tokens,
+            "max_total_tokens": args.max_total_tokens,
             "concurrency_levels": concurrency_levels,
             "context_lengths": context_lengths,
         },
-        "results": [asdict(r) for r in results],
+        "prefill": prefill_summary,
+        "results": [asdict(r) for r in actual_results],
         "summary_table": summary,
     }
 
@@ -841,8 +1087,8 @@ def parse_args():
         help="Comma-separated context lengths in tokens (default: 0,16384,32768,65536,131072)"
     )
     parser.add_argument(
-        "--duration", type=float, default=20.0,
-        help="Duration per test cell in seconds (default: 20)"
+        "--duration", type=float, default=30.0,
+        help="Duration per test cell in seconds (default: 30)"
     )
     parser.add_argument(
         "--max-tokens", type=int, default=8192,
@@ -857,45 +1103,48 @@ def parse_args():
         help="Model name for API requests (default: Qwen3.5)"
     )
     parser.add_argument(
-        "--cached-prefill", action="store_true",
-        help="Use same base text for all context lengths (measures pure decode speed). "
-             "A warmup request populates the radix cache before each cell."
+        "--max-total-tokens", type=int, default=0,
+        help="Max total tokens budget (concurrency × (context + max_tokens)). "
+             "Cells exceeding this are skipped. 0 = no limit (default: 0)"
     )
     return parser.parse_args()
 
 
 _partial_results: list = []
+_prefill_results: dict = {}
 
 
 def main():
-    global _partial_results
+    global _partial_results, _prefill_results
     args = parse_args()
     console = Console()
 
     concurrency_levels = [int(x) for x in args.concurrency.split(",")]
     context_lengths = [int(x) for x in args.contexts.split(",")]
-    total = len(concurrency_levels) * len(context_lengths)
+    decode_count = len(concurrency_levels) * len(context_lengths)
 
     console.print(Panel(
         f"[bold cyan]sglang Inference Benchmark[/bold cyan]\n"
         f"Model: {args.model} @ {args.host}:{args.port}\n"
-        f"Concurrency: {concurrency_levels}\n"
-        f"Contexts: {[format_context(c) for c in context_lengths]}\n"
-        f"Duration: {args.duration}s per test | Max tokens: {args.max_tokens}\n"
-        f"Total tests: {total} | Est. time: ~{format_time(total * (args.duration + 5))}",
+        f"Decode concurrency: {concurrency_levels}\n"
+        f"Decode contexts: {[format_context(c) for c in context_lengths]}\n"
+        f"Duration: {args.duration}s per decode test | Max tokens: {args.max_tokens}\n"
+        f"Phase 1: prefill (auto, up to 200k) | Phase 2: {decode_count} decode tests (cached)",
         title="Configuration",
         border_style="cyan",
     ))
 
     try:
-        results = asyncio.run(run_benchmark(args))
+        results, prefill_results = asyncio.run(run_benchmark(args))
+        _prefill_results = prefill_results
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user. Saving partial results...[/yellow]")
         results = _partial_results
+        prefill_results = _prefill_results
 
-    if results:
-        print_final_results(results, concurrency_levels, context_lengths, console)
-        save_results(results, args, args.output)
+    if results or prefill_results:
+        print_final_results(results, concurrency_levels, context_lengths, console, prefill_results)
+        save_results(results, args, args.output, prefill_results)
         console.print(f"\n[green]Results saved to {args.output}[/green]")
     else:
         console.print("[red]No results collected.[/red]")
