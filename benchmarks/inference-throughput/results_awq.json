@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "model": "Qwen3.5",
+    "server": "localhost:5000",
+    "timestamp": "2026-03-12T13:51:39.683257",
+    "duration_per_test": 15.0,
+    "max_tokens": 8192,
+    "concurrency_levels": [
+      1,
+      4,
+      16,
+      32
+    ],
+    "context_lengths": [
+      0
+    ]
+  },
+  "results": [
+    {
+      "concurrency": 1,
+      "context_tokens": 0,
+      "aggregate_tps": 124.84220132089185,
+      "per_request_avg_tps": 147.45939672692634,
+      "ttft_avg": 0.09056134603451937,
+      "ttft_p50": 0.09056134603451937,
+      "ttft_p99": 0.09056134603451937,
+      "total_tokens": 2230,
+      "wall_time": 15.122870953055099,
+      "num_completed": 1,
+      "num_errors": 0,
+      "server_gen_throughput": 124.84220132089185,
+      "server_utilization": 0.0,
+      "server_spec_accept_rate": 0.5666666666666667
+    },
+    {
+      "concurrency": 4,
+      "context_tokens": 0,
+      "aggregate_tps": 411.93011855151684,
+      "per_request_avg_tps": 117.44393713933754,
+      "ttft_avg": 0.12203545376542024,
+      "ttft_p50": 0.12193537899293005,
+      "ttft_p99": 0.12238844246137887,
+      "total_tokens": 7107,
+      "wall_time": 15.12902476603631,
+      "num_completed": 4,
+      "num_errors": 0,
+      "server_gen_throughput": 411.93011855151684,
+      "server_utilization": 0.0,
+      "server_spec_accept_rate": 0.49583333333333335
+    },
+    {
+      "concurrency": 16,
+      "context_tokens": 0,
+      "aggregate_tps": 1013.0399909719638,
+      "per_request_avg_tps": 67.28546396764659,
+      "ttft_avg": 0.2912629312922945,
+      "ttft_p50": 0.2937988759367727,
+      "ttft_p99": 0.2945593300741166,
+      "total_tokens": 16307,
+      "wall_time": 15.148565815994516,
+      "num_completed": 16,
+      "num_errors": 0,
+      "server_gen_throughput": 1013.0399909719638,
+      "server_utilization": 0.0,
+      "server_spec_accept_rate": 0.6328125
+    },
+    {
+      "concurrency": 32,
+      "context_tokens": 0,
+      "aggregate_tps": 1469.9537218399807,
+      "per_request_avg_tps": 50.87969567595178,
+      "ttft_avg": 0.22151716997177573,
+      "ttft_p50": 0.22164873901056126,
+      "ttft_p99": 0.2756867590977345,
+      "total_tokens": 24624,
+      "wall_time": 15.126085960073397,
+      "num_completed": 32,
+      "num_errors": 0,
+      "server_gen_throughput": 1469.9537218399807,
+      "server_utilization": 0.0,
+      "server_spec_accept_rate": 0.58671875
+    }
+  ],
+  "summary_table": {
+    "0": {
+      "1": 124.84220132089185,
+      "4": 411.93011855151684,
+      "16": 1013.0399909719638,
+      "32": 1469.9537218399807
+    }
+  }
+}
