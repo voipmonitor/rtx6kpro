@@ -74,7 +74,7 @@ For 8-repeat tests, each repeat was run sequentially (not parallel) to avoid ser
 | **Hard Math** (no thinking) | **89.5%** (17/19) | **89.5%** (17/19) | 84.2% (16/19) | — | 19 custom questions |
 | **KL Divergence** (vs FP8) | **0.024** | 0.035 | 0.109 | — | 204,800 positions, WikiText-2 |
 
-**On GPQA, all four configurations are statistically indistinguishable** (overlapping 95% CIs, Welch t-test p>0.05 for all pairs). nvidia NVFP4 on vLLM (88.53%) scores higher than on SGLang (87.46%), suggesting inference engine matters as much as quantization. AWQ and lukealonso tie on GSM8K and Hard Math. AWQ's clear advantages are in KLD (deterministic, 0.024 vs 0.035 vs 0.109) and throughput (15-38% faster than NVFP4 on SGLang).
+**On GPQA, all four configurations are statistically indistinguishable** (overlapping 95% CIs, Welch t-test p>0.05 for all pairs). lukealonso has the best run-to-run consistency (std 1.06), while nvidia/vLLM scores highest but with the worst consistency (std 1.92). AWQ and lukealonso tie on GSM8K and Hard Math. AWQ's advantages are in KLD (0.024 vs 0.035 vs 0.109) and throughput (15-38% faster than NVFP4 on SGLang). lukealonso's advantage is lower variance across repeated evaluations.
 
 ---
 
@@ -265,20 +265,25 @@ For full decode + prefill tables across context lengths, see [inference-throughp
 
 ## Overall Conclusions
 
-### 1. AWQ (QuantTrio) is the best quantization for Qwen3.5-397B-A17B
+### 1. AWQ and lukealonso NVFP4 are both excellent — AWQ wins on quality and throughput, lukealonso on consistency
 
 | Metric | AWQ (SGLang) | lukealonso NVFP4 (SGLang) | nvidia NVFP4 (SGLang) | nvidia NVFP4 (vLLM) |
 |--------|-----|------------------|--------------|---------------------|
-| GPQA (8-repeat mean) | **88.40%** | 88.28% | 87.46% | **88.53%** |
+| GPQA (8-repeat mean) | 88.40% | 88.28% | 87.46% | **88.53%** |
+| GPQA (std) | 1.39 | **1.06** | 1.57 | 1.92 |
 | GSM8K | **99.0%** | **99.0%** | 97.5% | — |
 | Hard Math | **89.5%** | **89.5%** | 84.2% | — |
 | KL Divergence | **0.024** | 0.035 | 0.109 | — |
 | Throughput (C=64) | **1662 tok/s** | 1202 tok/s | — | — |
 
-On GPQA, all four configurations are **statistically equivalent** (Welch t-test p>0.05 for all pairs). nvidia NVFP4 on vLLM (88.53%) scores comparably to AWQ on SGLang (88.40%), suggesting inference engine choice can matter as much as quantization method. AWQ's clear advantages are in **KLD** (0.024 vs 0.035 — 32% closer to FP8 reference) and **throughput** (15-38% faster than NVFP4 on SGLang).
+On GPQA, all four configurations are **statistically equivalent** (Welch t-test p>0.05 for all pairs). nvidia NVFP4 on vLLM (88.53%) scores highest but also has the worst run-to-run consistency (std 1.92). lukealonso has the **best consistency** (std 1.06) — the most predictable results across repeated evaluations. AWQ and lukealonso tie on all accuracy benchmarks (GPQA, GSM8K, Hard Math).
+
+AWQ's advantages are in **KLD** (0.024 vs 0.035 — 32% lower divergence from FP8 reference, meaning AWQ preserves more of the original model's output distribution) and **throughput** (15-38% faster than NVFP4 on SGLang). lukealonso's advantage is **lower variance** on GPQA, making it the more consistent choice for accuracy-sensitive deployments.
+
+**Overall recommendation:** AWQ offers the best combination of quality (lowest KLD) and throughput, making it the best choice for production serving where both speed and fidelity matter. lukealonso NVFP4 is an equally valid choice if consistency is prioritized over throughput.
 
 ### 2. If NVFP4 is required, use lukealonso over nvidia
-lukealonso NVFP4 trends higher than nvidia NVFP4 across all benchmarks (+0.8% on GPQA, though not statistically significant). The advantage is clear without thinking mode (GSM8K: +5%, Hard Math: +5.3%). nvidia NVFP4 has significant KLD (0.109, 3x worse than lukealonso), consistent with community reports (vLLM Issue #36094).
+lukealonso NVFP4 trends higher than nvidia NVFP4 across all benchmarks (+0.8% on GPQA, though not statistically significant) with better consistency (std 1.06 vs 1.57). The advantage is clear without thinking mode (GSM8K: +5%, Hard Math: +5.3%). nvidia NVFP4 has significant KLD (0.109, 3x worse than lukealonso), consistent with community reports (vLLM Issue #36094).
 
 ### 3. Enable MTP for production serving
 MTP provides 18-24% inference speedup with no measurable accuracy degradation.
