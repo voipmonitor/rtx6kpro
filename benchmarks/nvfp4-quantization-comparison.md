@@ -74,7 +74,7 @@ For 8-repeat tests, each repeat was run sequentially (not parallel) to avoid ser
 | **Hard Math** (no thinking) | **89.5%** (17/19) | **89.5%** (17/19) | 84.2% (16/19) | 19 custom questions |
 | **KL Divergence** (vs FP8) | **0.024** | 0.035 | 0.109 | 204,800 positions, WikiText-2 |
 
-**AWQ wins or ties every benchmark**, while also having the lowest KL divergence from the FP8 reference.
+**On GPQA, all three models are statistically indistinguishable** (overlapping 95% CIs, Welch t-test p>0.05 for all pairs). AWQ and lukealonso tie on GSM8K and Hard Math. nvidia is consistently the weakest. AWQ's advantage is clearest in KLD (deterministic, 0.024 vs 0.035 vs 0.109) and throughput (15-38% faster than NVFP4).
 
 ---
 
@@ -126,6 +126,13 @@ For full KLD methodology, reproduction steps, and automation script, see [kld-ev
 | 1 | **AWQ (QuantTrio)** | **88.40%** | 87.9, 89.9, 88.9, 89.9, 87.4, 89.4, 85.9, 87.9 | 1.389 | ~20 min |
 | 2 | lukealonso NVFP4 | 88.28% | 88.9, 87.9, 86.9, 88.4, 90.4, 88.4, 87.9, 87.4 | 1.06 | ~24 min |
 | 3 | nvidia NVFP4 | 87.46% | 85.9, 90.4, 85.9, 88.4, 87.9, 85.9, 87.4, 87.9 | 1.57 | ~24 min |
+
+**Statistical significance (Welch t-test, two-tailed):**
+- AWQ vs lukealonso: Δ=+0.12%, t=0.20, p>0.05 — **not significant**
+- AWQ vs nvidia: Δ=+0.94%, t=1.27, p>0.05 — **not significant**
+- lukealonso vs nvidia: Δ=+0.81%, t=1.21, p>0.05 — **not significant**
+
+95% confidence intervals overlap for all three models: AWQ [87.4–89.4], lukealonso [87.5–89.0], nvidia [86.4–88.5]. With 8 repeats and std ~1.0–1.6, the GPQA benchmark cannot distinguish these quantizations at the 95% confidence level.
 
 ### GPQA 8-Repeat Detail (lukealonso & nvidia, MTP OFF)
 
@@ -236,10 +243,10 @@ For full decode + prefill tables across context lengths, see [inference-throughp
 | KL Divergence | **0.024** | 0.035 | 0.109 |
 | Throughput (C=64) | **1662 tok/s** | 1202 tok/s | — |
 
-AWQ wins on **quality** (lowest KLD, highest/tied benchmark scores), **throughput** (15-38% faster), and **reliability** (lowest distribution divergence from FP8 reference).
+On task benchmarks (GPQA, GSM8K, Hard Math), AWQ and lukealonso NVFP4 are **statistically equivalent** — the 0.12% GPQA difference is well within noise (Welch t-test p>0.05). AWQ's clear advantages are in **KLD** (0.024 vs 0.035 — 32% closer to FP8 reference) and **throughput** (15-38% faster at all concurrency levels).
 
 ### 2. If NVFP4 is required, use lukealonso over nvidia
-lukealonso NVFP4 consistently outperforms nvidia NVFP4 across all benchmarks (+0.8% to +5.3%). The advantage is especially pronounced without thinking mode (+5%). nvidia NVFP4 has significant KLD (0.109, 3x worse than lukealonso), consistent with community reports (vLLM Issue #36094).
+lukealonso NVFP4 trends higher than nvidia NVFP4 across all benchmarks (+0.8% on GPQA, though not statistically significant). The advantage is clear without thinking mode (GSM8K: +5%, Hard Math: +5.3%). nvidia NVFP4 has significant KLD (0.109, 3x worse than lukealonso), consistent with community reports (vLLM Issue #36094).
 
 ### 3. Enable MTP for production serving
 MTP provides 18-24% inference speedup with no measurable accuracy degradation.
