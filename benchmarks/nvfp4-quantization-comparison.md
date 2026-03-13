@@ -71,7 +71,7 @@ For 8-repeat tests, each repeat was run sequentially (not parallel) to avoid ser
 |-----------|----------------|------------------|--------------|---------------------|-------|
 | **GPQA** (thinking, 8-repeat mean) | **88.40%** ±1.39 | 88.28% ±1.06 | 87.46% ±1.57 | **88.53%** ±1.92 | 198 examples, 8 runs, MTP ON |
 | **GSM8K** (thinking) | **99.0%** | **99.0%** | 97.5% | 98.5% | 200 examples, max-tokens 16000 |
-| **Hard Math** (no thinking) | **89.5%** (17/19) | **89.5%** (17/19) | 84.2% (16/19) | — | 19 custom questions |
+| **Hard Math** (no thinking) | **89.5%** (17/19) | **89.5%** (17/19) | 84.2% (16/19) | 84.2% (16/19) | 19 custom questions |
 | **KL Divergence** (vs FP8) | **0.024** | 0.035 | 0.109 | — | 204,800 positions, WikiText-2 |
 
 **On GPQA, all four configurations are statistically indistinguishable** (overlapping 95% CIs, Welch t-test p>0.05 for all pairs). lukealonso has the best run-to-run consistency (std 1.06), while nvidia/vLLM scores highest but with the worst consistency (std 1.92). AWQ and lukealonso tie on GSM8K and Hard Math. AWQ's advantages are in KLD (0.024 vs 0.035 vs 0.109) and throughput (15-38% faster than NVFP4 on SGLang). lukealonso's advantage is lower variance across repeated evaluations.
@@ -216,37 +216,40 @@ Without thinking mode, the gap between NVFP4 quantizations widens to 5%, consist
 
 ## Part 4: Hard Math Test (19 custom questions, no thinking mode)
 
-| Model | Score | Correct |
-|-------|-------|---------|
-| **AWQ (QuantTrio)** | **89.5%** | 17/19 |
-| lukealonso NVFP4 | **89.5%** | 17/19 |
-| nvidia NVFP4 | 84.2% | 16/19 |
+| Model | Engine | Score | Correct |
+|-------|--------|-------|---------|
+| **AWQ (QuantTrio)** | SGLang | **89.5%** | 17/19 |
+| lukealonso NVFP4 | SGLang | **89.5%** | 17/19 |
+| nvidia NVFP4 | SGLang | 84.2% | 16/19 |
+| nvidia NVFP4 | vLLM | 84.2% | 16/19 |
+
+nvidia scores identically on both engines (16/19), failing the same three questions (Q1, Q3, Q9). This confirms the errors are from quantization, not the inference engine.
 
 ### Per-Question Detail
 
-| Q# | Question | AWQ | lukealonso | nvidia |
+| Q# | Question | AWQ | lukealonso | nvidia (SGLang) | nvidia (vLLM) |
 |----|----------|-----|-----------|--------|
-| 1 | (37*43)-(29*51)+17 | FAIL | FAIL (139) | FAIL (10) |
-| 2 | 123^2 - 113^2 | OK | OK | OK |
-| 3 | 2^31 mod 7 | FAIL | FAIL (4) | FAIL (1) |
-| 4 | log_2(x)=5.5, x=? | OK | OK | OK |
-| 5 | P(2 aces in row) | OK | OK | OK |
-| 6 | LCM(12,18,20) | OK | OK | OK |
-| 7 | Primes < 50 | OK | OK | OK |
-| 8 | Sum primes < 30 | OK | OK | OK |
-| 9 | (root1+1)(root2+1) for x^2-7x+12=0 | OK | **OK (20)** | **FAIL (30)** |
-| 10 | 2^a*3^b=72, a+b=? | OK | OK | OK |
-| 11 | Altitude to hypotenuse | OK | OK | OK |
-| 12 | 10th Fibonacci | OK | OK | OK |
-| 13 | Geometric sequence 8th term | OK | OK | OK |
-| 14 | MISSISSIPPI arrangements | OK | OK | OK |
-| 15 | C(8,3) | OK | OK | OK |
-| 16 | Infinite geometric series sum | OK | OK | OK |
-| 17 | 2x2 determinant | OK | OK | OK |
-| 18 | Sum 1 to 100 | OK | OK | OK |
-| 19 | 13^3 | OK | OK | OK |
+| 1 | (37*43)-(29*51)+17 | FAIL | FAIL (139) | FAIL (10) | FAIL (17) |
+| 2 | 123^2 - 113^2 | OK | OK | OK | OK |
+| 3 | 2^31 mod 7 | FAIL | FAIL (4) | FAIL (1) | FAIL (1) |
+| 4 | log_2(x)=5.5, x=? | OK | OK | OK | OK |
+| 5 | P(2 aces in row) | OK | OK | OK | OK |
+| 6 | LCM(12,18,20) | OK | OK | OK | OK |
+| 7 | Primes < 50 | OK | OK | OK | OK |
+| 8 | Sum primes < 30 | OK | OK | OK | OK |
+| 9 | (root1+1)(root2+1) for x^2-7x+12=0 | OK | **OK (20)** | **FAIL (30)** | **FAIL (30)** |
+| 10 | 2^a*3^b=72, a+b=? | OK | OK | OK | OK |
+| 11 | Altitude to hypotenuse | OK | OK | OK | OK |
+| 12 | 10th Fibonacci | OK | OK | OK | OK |
+| 13 | Geometric sequence 8th term | OK | OK | OK | OK |
+| 14 | MISSISSIPPI arrangements | OK | OK | OK | OK |
+| 15 | C(8,3) | OK | OK | OK | OK |
+| 16 | Infinite geometric series sum | OK | OK | OK | OK |
+| 17 | 2x2 determinant | OK | OK | OK | OK |
+| 18 | Sum 1 to 100 | OK | OK | OK | OK |
+| 19 | 13^3 | OK | OK | OK | OK |
 
-Q1 and Q3 are failed by all models (multi-digit arithmetic without thinking). Q9 differentiates nvidia (FAIL) from AWQ and lukealonso (OK).
+Q1 and Q3 are failed by all models (multi-digit arithmetic without thinking). Q9 differentiates nvidia (FAIL on both engines) from AWQ and lukealonso (OK). nvidia produces the same wrong answer (30) on both SGLang and vLLM, confirming the error is in the quantized weights.
 
 ---
 
@@ -279,7 +282,7 @@ For full decode + prefill tables across context lengths, see [inference-throughp
 | GPQA (8-repeat mean) | 88.40% | 88.28% | 87.46% | **88.53%** |
 | GPQA (std) | 1.39 | **1.06** | 1.57 | 1.92 |
 | GSM8K | **99.0%** | **99.0%** | 97.5% | 98.5% |
-| Hard Math | **89.5%** | **89.5%** | 84.2% | — |
+| Hard Math | **89.5%** | **89.5%** | 84.2% | 84.2% |
 | KL Divergence | **0.024** | 0.035 | 0.109 | — |
 | Throughput (C=64) | **1662 tok/s** | 1202 tok/s | — | — |
 
