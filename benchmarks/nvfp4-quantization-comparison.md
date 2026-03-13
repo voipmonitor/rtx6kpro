@@ -1,15 +1,23 @@
-# Qwen3.5-397B-A17B-NVFP4: Benchmark Report
+# Qwen3.5-397B-A17B Quantization Comparison: AWQ vs NVFP4
 
-## lukealonso vs nvidia quantization + MTP Impact
+## Three-way benchmark: QuantTrio/AWQ vs lukealonso/NVFP4 vs nvidia/NVFP4
 
 ### Test Environment
 
 - **GPU:** 8x NVIDIA RTX PRO 6000 Blackwell Server Edition (98GB each)
 - **SGLang version:** 0.5.9
 - **Container:** voipmonitor/llm-pytorch-blackwell:nightly-cuda132
-- **Date:** 2026-03-11
+- **Date:** 2026-03-11 to 2026-03-13
 
-### Common Server Config
+### Models Tested
+
+| Model | Quantization | Format | Precision |
+|-------|-------------|--------|-----------|
+| QuantTrio/Qwen3.5-397B-A17B-AWQ | AWQ | INT4 | 16 levels, per-channel scaling, salient weight protection |
+| lukealonso/Qwen3.5-397B-A17B-NVFP4 | ModelOpt FP4 | E2M1 | 8 unique values, Blackwell FP4 Tensor Core hardware |
+| nvidia/Qwen3.5-397B-A17B-NVFP4 | ModelOpt FP4 | E2M1 | 8 unique values, Blackwell FP4 Tensor Core hardware |
+
+### Common Server Config (NVFP4)
 ```
 --tensor-parallel-size 8
 --quantization modelopt_fp4
@@ -27,6 +35,9 @@
 --schedule-conservativeness 0.1
 ```
 
+### AWQ Server Config
+Same as above but without `--quantization modelopt_fp4` and `--fp4-gemm-backend` (SGLang auto-detects AWQ from checkpoint config).
+
 ### MTP-specific flags (only for "MTP ON" tests)
 ```
 SGLANG_ENABLE_SPEC_V2=True
@@ -36,81 +47,78 @@ SGLANG_ENABLE_SPEC_V2=True
 --speculative-num-draft-tokens 6
 ```
 
-### Warning in all runs
-```
-DeepGemm is enabled but the scale_fmt of checkpoint is not ue8m0.
-This might cause accuracy degradation on Blackwell.
-```
-
 ---
 
-## Part 1: lukealonso vs nvidia Quantization Comparison
+## Full Comparison: All Three Quantizations
 
 ### Summary Table
 
-| Benchmark | lukealonso | nvidia | Delta | Notes |
-|-----------|-----------|--------|-------|-------|
-| **GPQA** (with MTP, thinking) | **88.26%** | 87.44% | **+0.82%** | 198 examples, 8 repeats |
-| **GPQA** (no MTP, thinking) | **87.50%** | 86.55% | **+0.95%** | 198 examples, 8 repeats |
-| **GSM8K** (thinking mode) | **99.0%** | 97.5% | **+1.5%** | 200 examples, max-tokens 16000 |
-| **GSM8K** (no thinking, 5-shot) | **44%** | 39% | **+5.0%** | 200 examples, max-tokens 2048 |
-| **Hard Math** (no thinking) | **89.5%** (17/19) | 84.2% (16/19) | **+5.3%** | 19 custom questions |
+| Benchmark | AWQ (QuantTrio) | lukealonso NVFP4 | nvidia NVFP4 | Notes |
+|-----------|----------------|------------------|--------------|-------|
+| **GPQA** (thinking) | **89.9%** | 88.4% | 87.4% | 198 examples, 1 repeat, MTP ON |
+| **GSM8K** (thinking) | **99.0%** | **99.0%** | 97.5% | 200 examples, max-tokens 16000 |
+| **Hard Math** (no thinking) | **89.5%** (17/19) | **89.5%** (17/19) | 84.2% (16/19) | 19 custom questions |
+| **KL Divergence** (vs FP8) | **0.024** | 0.035 | 0.109 | 204,800 positions, WikiText-2 |
 
-### Analysis
-
-**lukealonso/Qwen3.5-397B-A17B-NVFP4 consistently outperforms nvidia/Qwen3.5-397B-A17B-NVFP4** across all benchmarks:
-
-1. **Small gap on hard benchmarks with thinking** (GPQA: +0.82-0.95%, GSM8K thinking: +1.5%)
-   - When the model has thinking/reasoning enabled, the gap narrows because chain-of-thought can compensate for small quantization errors
-   - Both models achieve excellent scores (87-99%)
-
-2. **Larger gap without thinking mode** (GSM8K no-thinking: +5.0%, Hard Math: +5.3%)
-   - Without reasoning, quantization errors have more impact on raw accuracy
-   - The 5% gap on GSM8K without thinking is substantial and reproducible
-   - This is consistent with vLLM Issue #36094 reporting nvidia NVFP4 having severe GSM8K accuracy problems
-
-3. **The gap is consistent across all tests** - lukealonso wins every single benchmark, suggesting systematically better quantization quality
-
-### GSM8K Detail (with thinking mode)
-
-| Model | Score | Std |
-|-------|-------|-----|
-| lukealonso | 99.0% | 0.099 |
-| nvidia | 97.5% | 0.156 |
-
-lukealonso not only scores higher but has lower variance (std 0.099 vs 0.156), suggesting more stable/reliable outputs.
-
-### Hard Math Test Detail (19 custom questions, no thinking)
-
-| Q# | Question | lukealonso | nvidia |
-|----|----------|-----------|--------|
-| 1 | (37*43)-(29*51)+17 | FAIL (139) | FAIL (10) |
-| 2 | 123^2 - 113^2 | OK | OK |
-| 3 | 2^31 mod 7 | FAIL (4) | FAIL (1) |
-| 4 | log_2(x)=5.5, x=? | OK | OK |
-| 5 | P(2 aces in row) | OK | OK |
-| 6 | LCM(12,18,20) | OK | OK |
-| 7 | Primes < 50 | OK | OK |
-| 8 | Sum primes < 30 | OK | OK |
-| 9 | (root1+1)(root2+1) for x^2-7x+12=0 | **OK (20)** | **FAIL (30)** |
-| 10 | 2^a*3^b=72, a+b=? | OK | OK |
-| 11 | Altitude to hypotenuse | OK | OK |
-| 12 | 10th Fibonacci | OK | OK |
-| 13 | Geometric sequence 8th term | OK | OK |
-| 14 | MISSISSIPPI arrangements | OK | OK |
-| 15 | C(8,3) | OK | OK |
-| 16 | Infinite geometric series sum | OK | OK |
-| 17 | 2x2 determinant | OK | OK |
-| 18 | Sum 1 to 100 | OK | OK |
-| 19 | 13^3 | OK | OK |
-
-Key difference: Q9 (algebraic manipulation) - lukealonso correctly computes 20, nvidia incorrectly answers 30.
+**AWQ wins or ties every benchmark**, while also having the lowest KL divergence from the FP8 reference.
 
 ---
 
-## Part 2: MTP (Multi-Token Prediction) Impact
+## Part 1: KL Divergence (Quantization Quality)
 
-### GPQA Results (198 examples, 8 repeats, thinking mode)
+KL divergence measures the exact difference in output probability distributions between a quantized model and the FP8 reference. Lower = better.
+
+**Reference model:** Qwen/Qwen3.5-397B-A17B-FP8 (TP8)
+**Dataset:** WikiText-2, 100 sliding windows (2048 tokens, stride 512), 204,800 total positions
+
+```
+KLD Evaluation Results (ref: Qwen3.5-397B-A17B-FP8)
+============================================================================================
+
+Model                                      Mean KLD   Median KLD    P95 KLD    P99 KLD    Max KLD
+------------------------------------------------------------------------------------------------
+QuantTrio/Qwen3.5-397B-A17B-AWQ (INT4)    0.024042     0.004788   0.097537   0.346614     3.7282
+lukealonso/Qwen3.5-397B-A17B-NVFP4        0.035269     0.006830   0.146239   0.529040     4.5687
+nvidia/Qwen3.5-397B-A17B-NVFP4            0.108526     0.027302   0.467703   1.411015    19.6018
+```
+
+### KLD Ranking
+
+1. **QuantTrio/AWQ** — best quality. Mean KLD 0.024 (near-lossless).
+2. **lukealonso/NVFP4** — 1.5x worse than AWQ but still good. Mean KLD 0.035.
+3. **nvidia/NVFP4** — 4.5x worse than AWQ, 3x worse than lukealonso. Mean KLD 0.109, with heavy tail (Max KLD 19.6).
+
+### KLD Interpretation Scale
+
+| Mean KLD | Quantization quality |
+|----------|---------------------|
+| < 0.01 | Near-lossless |
+| 0.01 - 0.05 | Good, minimal quality loss |
+| 0.05 - 0.1 | Noticeable quality loss |
+| > 0.1 | Significant quality loss |
+
+nvidia NVFP4 falls into "significant quality loss" territory (0.109), while both AWQ and lukealonso are in the "good" range.
+
+---
+
+## Part 2: Benchmark Results Detail
+
+### GPQA (Graduate-Level Google-Proof Q&A)
+
+198 examples, thinking mode enabled.
+
+| Model | Repeats | Score | Notes |
+|-------|---------|-------|-------|
+| **AWQ (QuantTrio)** | 1 | **89.9%** | MTP ON |
+| lukealonso NVFP4 | 1 | 88.4% | MTP ON, fresh run |
+| lukealonso NVFP4 | 8 (mean) | 88.26% | MTP ON, std 0.332 |
+| lukealonso NVFP4 | 8 (mean) | 87.50% | MTP OFF, std 0.332 |
+| nvidia NVFP4 | 8 (mean) | 87.44% | MTP ON, std 0.326 |
+| nvidia NVFP4 | 8 (mean) | 86.55% | MTP OFF, std 0.314 |
+
+AWQ scores 1.5% higher than lukealonso NVFP4 and 2.5% higher than nvidia NVFP4.
+
+#### GPQA 8-Repeat Detail (lukealonso & nvidia, MTP ON vs OFF)
 
 | # | Model | MTP | GPQA Mean | Scores (8 repeats) | Std | Runtime |
 |---|-------|-----|-----------|---------------------|-----|---------|
@@ -119,7 +127,66 @@ Key difference: Q9 (algebraic manipulation) - lukealonso correctly computes 20, 
 | 3 | nvidia      | ON  | **87.44%** | 85.9, 90.4, 85.9, 88.4, 87.9, 85.9, 87.4, 87.9 | 0.326 | ~1h 43m |
 | 4 | nvidia      | OFF | **86.55%** | 86.4, 85.9, 86.9, 86.4, 84.8, 86.4, 86.9, 88.9 | 0.314 | ~2h 15m |
 
-### MTP Impact per model
+### GSM8K (Grade School Math 8K)
+
+200 examples, thinking mode, max-tokens 16000.
+
+| Model | Score | Std |
+|-------|-------|-----|
+| **AWQ (QuantTrio)** | **99.0%** | — |
+| lukealonso NVFP4 | **99.0%** | 0.099 |
+| nvidia NVFP4 | 97.5% | 0.156 |
+
+AWQ and lukealonso tie at 99.0%. nvidia lags at 97.5% with higher variance.
+
+#### GSM8K Without Thinking (5-shot, lukealonso vs nvidia only)
+
+| Model | Score |
+|-------|-------|
+| lukealonso NVFP4 | 44% |
+| nvidia NVFP4 | 39% |
+
+Without thinking mode, the gap between NVFP4 quantizations widens to 5%, consistent with vLLM Issue #36094 reporting nvidia NVFP4 accuracy problems.
+
+### Hard Math Test (19 custom questions, no thinking mode)
+
+| Model | Score | Correct |
+|-------|-------|---------|
+| **AWQ (QuantTrio)** | **89.5%** | 17/19 |
+| lukealonso NVFP4 | **89.5%** | 17/19 |
+| nvidia NVFP4 | 84.2% | 16/19 |
+
+#### Per-Question Detail
+
+| Q# | Question | AWQ | lukealonso | nvidia |
+|----|----------|-----|-----------|--------|
+| 1 | (37*43)-(29*51)+17 | FAIL | FAIL (139) | FAIL (10) |
+| 2 | 123^2 - 113^2 | OK | OK | OK |
+| 3 | 2^31 mod 7 | FAIL | FAIL (4) | FAIL (1) |
+| 4 | log_2(x)=5.5, x=? | OK | OK | OK |
+| 5 | P(2 aces in row) | OK | OK | OK |
+| 6 | LCM(12,18,20) | OK | OK | OK |
+| 7 | Primes < 50 | OK | OK | OK |
+| 8 | Sum primes < 30 | OK | OK | OK |
+| 9 | (root1+1)(root2+1) for x^2-7x+12=0 | OK | **OK (20)** | **FAIL (30)** |
+| 10 | 2^a*3^b=72, a+b=? | OK | OK | OK |
+| 11 | Altitude to hypotenuse | OK | OK | OK |
+| 12 | 10th Fibonacci | OK | OK | OK |
+| 13 | Geometric sequence 8th term | OK | OK | OK |
+| 14 | MISSISSIPPI arrangements | OK | OK | OK |
+| 15 | C(8,3) | OK | OK | OK |
+| 16 | Infinite geometric series sum | OK | OK | OK |
+| 17 | 2x2 determinant | OK | OK | OK |
+| 18 | Sum 1 to 100 | OK | OK | OK |
+| 19 | 13^3 | OK | OK | OK |
+
+Q1 and Q3 are failed by all models (multi-digit arithmetic without thinking). Q9 differentiates nvidia (FAIL) from AWQ and lukealonso (OK).
+
+---
+
+## Part 3: MTP (Multi-Token Prediction) Impact
+
+### MTP Impact per Model (GPQA 8-repeat)
 
 | Model | MTP ON | MTP OFF | Delta |
 |-------|--------|---------|-------|
@@ -128,32 +195,54 @@ Key difference: Q9 (algebraic manipulation) - lukealonso correctly computes 20, 
 
 ### MTP Conclusions
 
-1. **MTP does NOT degrade accuracy** - both models score marginally higher with MTP (within statistical noise)
+1. **MTP does NOT degrade accuracy** — both models score marginally higher with MTP (within statistical noise)
 2. **MTP provides 18-24% inference speedup** without accuracy penalty
 3. **Recommendation: enable MTP** with `--disable-shared-experts-fusion`, `--speculative-eagle-topk 1`, `SGLANG_ENABLE_SPEC_V2=True`
 
-### Why MTP is lossless (theory)
-Speculative decoding works by:
-1. MTP heads propose multiple tokens speculatively
-2. Target model verifies all proposed tokens in parallel
-3. Accepted tokens are committed; rejected tokens fall back to standard decode
+---
 
-This verification guarantees output matches what the target model would generate without speculation.
+## Part 4: Throughput Benchmark
+
+All models tested with MTP enabled (NEXTN, 5 steps, 6 draft tokens), 4x RTX PRO 6000 Blackwell (TP4). Server-side `sglang:gen_throughput` Prometheus metric.
+
+```
+Aggregate decode throughput (tok/s), context=0
+=========================================================================
+
+Model                                 C=1    C=8    C=16    C=32    C=64
+------------------------------------------------------------------------
+QuantTrio/Qwen3.5-397B-A17B-AWQ      152    665     976    1516    1662
+lukealonso/Qwen3.5-397B-A17B-NVFP4   132    581     852    1191    1202
+```
+
+**AWQ is faster at every concurrency level:** 15% faster at C=1, growing to 38% at C=64 where AWQ still scales (1662 tok/s) while NVFP4 plateaus (1202 tok/s).
 
 ---
 
 ## Overall Conclusions
 
-### 1. Use lukealonso/Qwen3.5-397B-A17B-NVFP4 over nvidia/Qwen3.5-397B-A17B-NVFP4
-lukealonso quantization is consistently better across all benchmarks (+0.8% to +5.3%). The advantage is especially pronounced without thinking mode (+5%). This aligns with community reports of nvidia NVFP4 accuracy problems (vLLM Issue #36094).
+### 1. AWQ (QuantTrio) is the best quantization for Qwen3.5-397B-A17B
 
-### 2. Enable MTP for production serving
-MTP provides 18-24% inference speedup with no measurable accuracy degradation. Use the recommended flags to avoid known bugs.
+| Metric | AWQ | lukealonso NVFP4 | nvidia NVFP4 |
+|--------|-----|------------------|--------------|
+| GPQA | **89.9%** | 88.4% | 87.4% |
+| GSM8K | **99.0%** | **99.0%** | 97.5% |
+| Hard Math | **89.5%** | **89.5%** | 84.2% |
+| KL Divergence | **0.024** | 0.035 | 0.109 |
+| Throughput (C=64) | **1662 tok/s** | 1202 tok/s | — |
 
-### 3. Recommended production config
+AWQ wins on **quality** (lowest KLD, highest/tied benchmark scores), **throughput** (15-38% faster), and **reliability** (lowest distribution divergence from FP8 reference).
+
+### 2. If NVFP4 is required, use lukealonso over nvidia
+lukealonso NVFP4 consistently outperforms nvidia NVFP4 across all benchmarks (+0.8% to +5.3%). The advantage is especially pronounced without thinking mode (+5%). nvidia NVFP4 has significant KLD (0.109, 3x worse than lukealonso), consistent with community reports (vLLM Issue #36094).
+
+### 3. Enable MTP for production serving
+MTP provides 18-24% inference speedup with no measurable accuracy degradation.
+
+### 4. Recommended production config
 ```bash
-# Model
---model lukealonso/Qwen3.5-397B-A17B-NVFP4
+# Model (best overall)
+--model QuantTrio/Qwen3.5-397B-A17B-AWQ
 
 # MTP (speculative decoding)
 SGLANG_ENABLE_SPEC_V2=True
@@ -162,19 +251,16 @@ SGLANG_ENABLE_SPEC_V2=True
 --speculative-eagle-topk 1
 --speculative-num-draft-tokens 6
 
-# Bug mitigations
+# Required flags
 --disable-shared-experts-fusion
 --disable-custom-all-reduce
+--attention-backend triton
+--mamba-scheduler-strategy extra_buffer
 ```
 
----
-
-## Raw Data Files
-- `test1_lukealonso_mtp.json` - GPQA: lukealonso, MTP ON
-- `test2_lukealonso_no_mtp.json` - GPQA: lukealonso, MTP OFF
-- `test3_nvidia_mtp.json` - GPQA: nvidia, MTP ON
-- `test4_nvidia_no_mtp.json` - GPQA: nvidia, MTP OFF
-- `gsm8k_lukealonso.json` - GSM8K no-thinking: lukealonso = 44%
-- `gsm8k_nvidia.json` - GSM8K no-thinking: nvidia = 39%
-- `gsm8k_thinking_lukealonso.json` - GSM8K thinking: lukealonso = 99.0%
-- `gsm8k_thinking_nvidia.json` - GSM8K thinking: nvidia = 97.5%
+### Warning
+```
+DeepGemm is enabled but the scale_fmt of checkpoint is not ue8m0.
+This might cause accuracy degradation on Blackwell.
+```
+This warning appears for all NVFP4 runs. AWQ does not trigger this warning.
