@@ -94,15 +94,15 @@ All GPQA results are 8-repeat means with thinking mode enabled, 198 examples.
 | **GSM8K** (thinking) | **99.0%** | **99.0%** | 97.5% | 98.5% |
 | **Hard Math** (no thinking) | **89.5%** | **89.5%** | 84.2% | 84.2% |
 | **KL Divergence** (vs FP8) | **0.024** | 0.035 | 0.109 | — |
-| **Throughput MTP ON** (C=128, ctx=0) | **3519** | 3220 | 3232 | — |
-| **Throughput MTP OFF** (C=128, ctx=0) | **2796** | 2291 | 2294 | — |
+| **Throughput ctx=0** (C=128, MTP ON) | **3519** | 3220 | 3232 | — |
+| **Throughput ctx=64k** (C=64, MTP ON) | 1747 | **1905** | **1912** | — |
 
 **Key findings:**
 - **GPQA with MTP ON:** all four configurations are statistically indistinguishable (Welch t-test p>0.05 for all pairs)
 - **GPQA MTP OFF:** both engines converge to ~86.6-86.9% for nvidia, confirming MTP ON does not hurt accuracy
 - **GSM8K/Hard Math:** AWQ and lukealonso tie; nvidia is weaker (97.5% / 84.2%), same results on both engines
 - **KLD:** AWQ clearly best (0.024), lukealonso good (0.035), nvidia poor (0.109)
-- **Throughput (vLLM):** AWQ is fastest (3519 tok/s MTP ON, 2796 MTP OFF at C=128). NVFP4 models are identical without MTP (~2293 tok/s)
+- **Throughput (vLLM):** AWQ fastest at short context (3519 tok/s ctx=0), but NVFP4 is 9% faster at long context (1912 vs 1747 at ctx=64k/C=64 MTP ON). AWQ collapses at 128k/C=128 MTP ON (646 tok/s vs NVFP4's 2157)
 
 ---
 
@@ -269,6 +269,17 @@ All models tested on vLLM 0.17.0rc1, 4x RTX PRO 6000 Blackwell (TP4), with and w
 | lukealonso NVFP4 | OFF | 81 | 414 | 668 | 987 | 1590 | 2291 |
 | nvidia NVFP4 | OFF | 79 | 406 | 652 | 987 | 1590 | 2294 |
 
+### Decode throughput at context=64k (tok/s)
+
+| Model | MTP | C=1 | C=8 | C=16 | C=32 | C=64 | C=128 |
+|-------|-----|-----|-----|------|------|------|-------|
+| lukealonso NVFP4 | ON | 128 | 525 | 904 | 1295 | **1905** | **2183** |
+| nvidia NVFP4 | ON | 125 | 581 | 877 | 1271 | **1912** | **2159** |
+| AWQ | ON | 61 | 389 | 680 | 1074 | 1747 | 2303 |
+| AWQ | OFF | 100 | 477 | 748 | 1080 | 1464 | 1909 |
+| lukealonso NVFP4 | OFF | 78 | 398 | 636 | 922 | 1338 | 1907 |
+| nvidia NVFP4 | OFF | 76 | 390 | 621 | 891 | 1339 | 1783 |
+
 ### MTP speedup
 
 | Model | C=1 | C=8 | C=32 | C=64 | C=128 |
@@ -277,9 +288,9 @@ All models tested on vLLM 0.17.0rc1, 4x RTX PRO 6000 Blackwell (TP4), with and w
 | lukealonso NVFP4 | +57% | +49% | +46% | +44% | +41% |
 | nvidia NVFP4 | +53% | +42% | +44% | +42% | +41% |
 
-AWQ is fastest at all concurrency levels. MTP gives 26-57% speedup. NVFP4 models have identical throughput without MTP.
+**AWQ is fastest at short context (ctx=0)** but NVFP4 overtakes at long context (64k+) with MTP ON. AWQ has a severe anomaly at 128k/C=128 MTP ON (646 tok/s, queue=81%) due to its larger vocab_size (248320 vs 152064) exhausting KV cache. Without MTP, all models converge at 128k to ~1527 tok/s.
 
-For full results across context lengths, see [inference-throughput/](inference-throughput/).
+For full results across all context lengths, see [inference-throughput/](inference-throughput/).
 
 ---
 
@@ -294,14 +305,14 @@ For full results across context lengths, see [inference-throughput/](inference-t
 | GSM8K | **99.0%** | **99.0%** | 97.5% | 98.5% |
 | Hard Math | **89.5%** | **89.5%** | 84.2% | 84.2% |
 | KL Divergence | **0.024** | 0.035 | 0.109 | — |
-| Throughput MTP ON (C=128) | **3519 tok/s** | 3220 tok/s | 3232 tok/s | — |
-| Throughput MTP OFF (C=128) | **2796 tok/s** | 2291 tok/s | 2294 tok/s | — |
+| Throughput ctx=0 (C=128, MTP) | **3519 tok/s** | 3220 tok/s | 3232 tok/s | — |
+| Throughput ctx=64k (C=64, MTP) | 1747 tok/s | **1905 tok/s** | **1912 tok/s** | — |
 
 On GPQA, no pair of configurations is statistically distinguishable (p>0.05 for all). nvidia on vLLM (88.53%) and AWQ on SGLang (88.40%) score highest, but with std 1.0–1.9, 8 repeats cannot resolve differences below ~2pp.
 
-### 2. AWQ wins on KLD and throughput
+### 2. AWQ wins on KLD and short-context throughput, NVFP4 wins long-context
 
-AWQ has the lowest KL divergence from FP8 (0.024 vs 0.035 vs 0.109) and is 15-38% faster than NVFP4 on SGLang. For production serving where both speed and fidelity matter, AWQ is the best choice.
+AWQ has the lowest KL divergence from FP8 (0.024 vs 0.035 vs 0.109) and is fastest at short context (3519 vs 3220 tok/s at ctx=0/C=128). But at long context (64k+) with MTP, NVFP4 is 9% faster (1912 vs 1747 at ctx=64k/C=64). AWQ collapses at 128k/C=128 MTP (646 tok/s) due to larger vocab_size. Choose AWQ for short-context batch workloads, NVFP4 for long-context deployments.
 
 ### 3. If NVFP4 is required, use lukealonso over nvidia
 
