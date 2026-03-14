@@ -43,6 +43,17 @@ MTP: `--speculative-config '{"method":"mtp","num_speculative_tokens":2}'`
 | lukealonso NVFP4 | OFF | 81 | 414 | 668 | 987 | 1590 | 2291 |
 | nvidia NVFP4 | OFF | 79 | 406 | 652 | 987 | 1590 | 2294 |
 
+### Decode throughput at context=64k (tok/s)
+
+| Model | MTP | C=1 | C=8 | C=16 | C=32 | C=64 | C=128 |
+|-------|-----|-----|-----|------|------|------|-------|
+| lukealonso NVFP4 | ON | 128 | 525 | 904 | 1295 | **1905** | **2183** |
+| nvidia NVFP4 | ON | 125 | 581 | 877 | 1271 | **1912** | **2159** |
+| **AWQ** | **ON** | **61** | **389** | **680** | **1074** | 1747 | 2303 |
+| AWQ | OFF | 100 | 477 | 748 | 1080 | 1464 | 1909 |
+| lukealonso NVFP4 | OFF | 78 | 398 | 636 | 922 | 1338 | 1907 |
+| nvidia NVFP4 | OFF | 76 | 390 | 621 | 891 | 1339 | 1783 |
+
 ### MTP speedup
 
 | Model | C=1 | C=8 | C=32 | C=64 | C=128 |
@@ -53,10 +64,13 @@ MTP: `--speculative-config '{"method":"mtp","num_speculative_tokens":2}'`
 
 ### Key findings
 
-1. **AWQ is fastest at all concurrency levels** (both MTP ON and OFF), by 9-33% over NVFP4
-2. **MTP gives 26-57% speedup** depending on model and concurrency — always worth enabling
-3. **lukealonso and nvidia NVFP4 have identical throughput** without MTP; lukealonso is ~5% faster with MTP at low concurrency
-4. **AWQ MTP at C=128 ctx=0 peaks at 3519 tok/s** — highest measured throughput
+1. **AWQ is fastest at short context (ctx=0)**, outperforming NVFP4 by 9-16% with MTP ON
+2. **At long context (64k+) with MTP ON, NVFP4 is faster**: at ctx=64k/C=64, NVFP4 reaches 1905-1912 tok/s vs AWQ's 1747 tok/s (~9% faster)
+3. **AWQ has a severe anomaly at 128k/C=128 MTP ON**: throughput collapses to 646 tok/s (queue utilization ~81%) while NVFP4 holds 2157 tok/s. This is likely due to AWQ's larger vocab_size (248320 vs 152064 for NVFP4), which consumes more KV cache memory per token and causes capacity exhaustion at maximum context + concurrency
+4. **Without MTP, all three models converge at 128k/C=128 to ~1527 tok/s** — the gap disappears entirely
+5. **MTP gives 26-57% speedup** depending on model and concurrency — always worth enabling
+6. **lukealonso and nvidia NVFP4 have identical throughput** without MTP; lukealonso is ~5% faster with MTP at low concurrency
+7. **AWQ MTP at C=128 ctx=0 peaks at 3519 tok/s** — highest measured throughput in short-context workloads
 
 ---
 
@@ -136,14 +150,20 @@ MTP: `--speculative-config '{"method":"mtp","num_speculative_tokens":2}'`
 
 ### AWQ vs NVFP4 throughput
 
-AWQ is consistently faster than NVFP4 on vLLM:
-- **Without MTP:** AWQ is 3-33% faster (smallest gap at low concurrency, growing with batch size)
-- **With MTP:** AWQ is 9-16% faster at C=1, growing to ~15% at C=128
+The winner depends on context length and whether MTP is enabled:
 
-This is the opposite direction from what FP4 Tensor Core hardware support would suggest. AWQ (INT4, GEMM-based) outperforms NVFP4 (FP4, dedicated Tensor Cores) because:
+**Short context (ctx=0), MTP ON:** AWQ is fastest, outperforming NVFP4 by 9-16% across all concurrency levels. AWQ peaks at 3519 tok/s vs NVFP4's 3220-3232 tok/s at C=128.
+
+**Long context (64k+), MTP ON:** NVFP4 pulls ahead. At ctx=64k/C=64, NVFP4 reaches 1905-1912 tok/s vs AWQ's 1747 tok/s — a ~9% NVFP4 advantage. The crossover occurs somewhere between ctx=16k and ctx=64k.
+
+**Without MTP:** AWQ is moderately faster at short context (3-33%), but all three models converge tightly at 128k/C=128 to approximately 1527 tok/s. The context-length penalty is steepest for AWQ with MTP.
+
+**AWQ collapse at 128k/C=128 MTP ON (646 tok/s):** This is a severe anomaly — throughput drops to 42% of NVFP4's figure at the same setting (2157 tok/s). The root cause is almost certainly AWQ's larger vocabulary: `vocab_size=248320` vs `152064` for NVFP4 (a 63% larger embedding table). This inflates the KV cache footprint per token, exhausting available GPU memory at maximum context length and concurrency when MTP is active. Queue utilization reaches ~81%, indicating requests are being serialized rather than batched. Notably, this does not occur without MTP, where AWQ holds 1526 tok/s at 128k/C=128 — comparable to NVFP4's 1527 tok/s.
+
+AWQ's advantage at short context despite NVFP4 having dedicated FP4 Tensor Cores is explained by:
 1. AWQ uses mature INT4 GEMM kernels with better scheduling
-2. NVFP4's 8 unique values (E2M1) vs AWQ's 16 levels means AWQ has better weight compression efficiency per bit
-3. AWQ's per-channel scaling and salient weight protection reduce overhead
+2. NVFP4's E2M1 format (8 unique values) vs AWQ's 16 levels means slightly different effective quantization density per bit
+3. AWQ's per-channel scaling and salient weight protection reduce quantization error without runtime overhead
 
 ### MTP impact on throughput
 
@@ -151,13 +171,16 @@ MTP provides substantial speedup across all models:
 - **NVFP4 models:** consistent 40-57% speedup at low concurrency, 41% at C=128
 - **AWQ:** 41-51% at low concurrency, but drops to 26% at C=128 (AWQ's baseline is already faster)
 
-MTP is more effective for NVFP4 because the base decode speed is slower, giving more room for speculative acceleration.
+MTP is more effective for NVFP4 because the base decode speed is slower, giving more room for speculative acceleration. However, for AWQ at very long contexts, MTP introduces the KV cache pressure issue described above — at 128k/C=128 the benefit turns into a severe penalty.
 
 ### Context length impact
 
 Throughput degrades with longer contexts due to KV cache memory pressure:
-- At C=128, going from ctx=0 to ctx=128k reduces throughput by ~33-53% depending on model and MTP
-- AWQ MTP shows anomalous behavior at 128k/C=128 (646 tok/s) — likely KV cache capacity limit
+- **Without MTP:** All models degrade gracefully. At C=128, ctx=128k vs ctx=0 reduces throughput by ~31-40%. All three models land at ~1527 tok/s at 128k/C=128.
+- **With MTP, NVFP4:** Moderate degradation at high context. 128k/C=128 yields ~2138-2157 tok/s, still well above the no-MTP baseline.
+- **With MTP, AWQ:** Degrades normally up to 64k/C=128 (2303 tok/s), then collapses at 128k/C=128 (646 tok/s) due to KV cache exhaustion from the larger vocab_size.
+
+The practical recommendation: use AWQ for short-context batch workloads; prefer NVFP4 for long-context or mixed-context deployments where MTP is enabled.
 
 ### NVFP4: lukealonso vs nvidia
 
