@@ -229,25 +229,40 @@ GPU 7:  1.35   1.36   1.32   1.32   0.74   0.74   0.74     -
 
 Using [luke's p2pmark](https://github.com/lukealonso/p2pmark) tool.
 
-### Scores Summary
+> **Version note:** p2pmark changed its scoring formula in commit `be15bf6` (2026-03-14). The **old version** measures interconnect as all-to-all saturation (N*(N-1) concurrent flows), while the **new version** measures ring bandwidth. Reference scores from luke/Festr/Grimulkan use the old formula. Both results are shown below for comparison.
+
+### Scores — Old Version (comparable with reference systems)
+
+Old p2pmark (`3c39f36`, pre-March 14) — interconnect = all-to-all / ideal:
+
+| Config | PCIe Link Score | Interconnect Score | Details |
+|---|---|---|---|
+| **4 GPU (NUMA 0)** | **0.88** (55.3 GB/s) | **0.61** (134.2 / 221.2 GB/s) | — |
+| **8 GPU (all)** | **0.84** (52.8 GB/s) | **0.10** (44.2 / 422.5 GB/s) | all-to-all saturated by cross-NUMA |
+
+Comparison with reference systems (same old version):
+
+| System | GPUs | PCIe Score | Interconnect Score (all-to-all / ideal) |
+|---|---|---|---|
+| **This system** | 4 | **0.88** | **0.61** (134 / 221 GB/s) |
+| luke (3x Microchip switches) | 4 | 0.86 | 0.64 (138 / 218 GB/s) |
+| Festr (dual Turin, direct-attach) | 4 | 0.88 | 0.59 (130 / 221 GB/s) |
+| **This system** | 8 | **0.84** | **0.10** (44 / 423 GB/s) |
+| luke (3x Microchip switches) | 8 | 0.86 | 0.44 (192 / 435 GB/s) |
+| Festr (dual Turin, direct-attach) | 8 | 0.84 | 0.41 (173 / 421 GB/s) |
+
+The 8-GPU all-to-all score (0.10) is low because the old metric fires 56 concurrent transfers, completely saturating the Infinity Fabric cross-NUMA links. This does not reflect real-world NCCL ring performance.
+
+### Scores — New Version (ring-based, current p2pmark)
+
+New p2pmark (`be15bf6`, post-March 14) — interconnect = ring BW / ideal ring:
 
 | Config | PCIe Link Score | Interconnect Score | Effective Latency |
 |---|---|---|---|
 | **4 GPU (NUMA 0)** | **0.86** (54.3 GB/s) | **0.96** (207 / 216 GB/s) | **2.12 us** |
 | **8 GPU (all)** | **0.72** (45.3 GB/s) | **0.90** (381 / 422 GB/s) | **7.40 us** |
 
-### Comparison with Other Systems
-
-| System | GPUs | PCIe Score | Interconnect Score | Latency |
-|---|---|---|---|---|
-| **This system (4 GPU)** | 4 | 0.86 | **0.96** | 2.12 us |
-| **This system (8 GPU)** | 8 | 0.72 | **0.90** | 7.40 us |
-| luke (3x Microchip switches) | 4 | 0.86 | 0.64 | 4.10 us |
-| luke (3x Microchip switches) | 8 | 0.86 | 0.44 | 6.79 us |
-| Festr (dual Turin, direct-attach) | 4 | 0.88 | 0.59 | 2.28 us |
-| Festr (dual Turin, direct-attach) | 8 | 0.84 | 0.41 | 6.03 us |
-
-The **interconnect score** on this system is significantly higher than reference systems because ACS is disabled, allowing P2P traffic to route directly through the Broadcom switch fabric instead of being redirected through root ports.
+The ring-based score better reflects actual NCCL AllReduce performance since NCCL uses ring topology. The 4-GPU score of 0.96 confirms near-perfect P2P routing through the Broadcom switch fabric with ACS disabled.
 
 ### 4-GPU Ring Bandwidth (NUMA 0)
 
