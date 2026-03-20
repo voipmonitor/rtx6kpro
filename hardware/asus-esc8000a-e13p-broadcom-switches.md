@@ -347,6 +347,59 @@ AllReduce BusBw (32M, 4 GPU): default = 30.3 GB/s → **NCCL_P2P_LEVEL=SYS = 39.
 
 ---
 
+## PCIe Oneshot AllReduce — Inference Benchmark
+
+End-to-end inference benchmark using [luke's PCIe oneshot allreduce](https://github.com/lukealonso/sglang/commit/d39236aee635cca2725f94539358da0d1c85d8c2) on Qwen3.5-397B-A17B-NVFP4 with TP=4 and speculative decoding (MTP).
+
+For patch application instructions, see [PCIe Oneshot AllReduce Guide](../optimization/pcie-oneshot-allreduce.md).
+
+### Raw AllReduce Crossover (PCIe oneshot vs NCCL, 4 GPU, bf16)
+
+```
+  1KB:  custom    6.1 µs  vs  NCCL   13.5 µs  → custom 2.2×
+  4KB:  custom    6.5 µs  vs  NCCL   13.2 µs  → custom 2.0×
+ 16KB:  custom    7.7 µs  vs  NCCL   14.7 µs  → custom 1.9×
+ 64KB:  custom   11.8 µs  vs  NCCL   71.2 µs  → custom 6.0×
+256KB:  custom   28.7 µs  vs  NCCL   40.9 µs  → custom 1.4×
+  1MB:  custom   95.6 µs  vs  NCCL   85.2 µs  → NCCL wins
+```
+
+Crossover at 512 KB. For messages up to 512 KB, PCIe oneshot is **1.4–6.0× faster**.
+
+### End-to-End Decode Throughput (tok/s)
+
+```mermaid
+xychart-beta
+    title "Aggregate Throughput: PCIe Oneshot vs NCCL"
+    x-axis ["c=1", "c=2", "c=4", "c=8", "c=16", "c=32", "c=64"]
+    y-axis "Tokens/sec" 0 --> 1400
+    bar "PCIe oneshot" [74.9, 119.8, 217.5, 375.2, 608.1, 989.0, 1376.9]
+    bar "NCCL only" [67.3, 110.8, 202.8, 356.1, 577.3, 940.2, 1283.1]
+```
+
+| Concurrency | PCIe oneshot | NCCL only | Improvement |
+|---|---|---|---|
+| 1 | 74.9 tok/s | 67.3 tok/s | **+11.3%** |
+| 4 | 217.5 tok/s | 202.8 tok/s | +7.3% |
+| 16 | 608.1 tok/s | 577.3 tok/s | +5.3% |
+| 32 | 989.0 tok/s | 940.2 tok/s | +5.2% |
+| 64 | 1376.9 tok/s | 1283.1 tok/s | +7.3% |
+
+PCIe oneshot allreduce is consistently **5–11% faster** than NCCL across all concurrency levels. Largest improvement at single-request latency (+11.3%).
+
+### Effect of NCCL_P2P_LEVEL=SYS
+
+| Config | c=1 | c=64 | Notes |
+|---|---|---|---|
+| PCIe oneshot | 74.9 | 1376.9 | SYS has no effect (~0%) |
+| PCIe oneshot + SYS | 74.6 | 1390.5 | Negligible difference |
+| NCCL only | 67.3 | 1283.1 | — |
+| NCCL + SYS | 69.7 | 1381.1 | **+3.6%** at c=1, closes gap at c=64 |
+
+`NCCL_P2P_LEVEL=SYS` only matters for NCCL (small improvement). PCIe oneshot bypasses NCCL for small messages, so SYS has no effect.
+
+---
+
 ## Hardware Configuration Issues
 
 ### MaxReadReq Locked at 128 Bytes on Switch Ports

@@ -311,6 +311,22 @@ CUDA_DEVICE_MAX_CONNECTIONS=32
 
 ---
 
+## PCIe Oneshot AllReduce (Bypass NCCL for Small Messages)
+
+For PCIe topologies (without NVLink), luke's PCIe oneshot allreduce kernel replaces NCCL for small messages (<512 KB), achieving **1.4–6× lower AllReduce latency** and **5–11% faster end-to-end decode throughput**.
+
+See **[PCIe Oneshot AllReduce Guide](pcie-oneshot-allreduce.md)** for setup, benchmarks, and patch instructions.
+
+Quick summary (Qwen3.5-397B, TP=4, 4× RTX PRO 6000):
+
+| Concurrency | PCIe Oneshot | NCCL Only | Improvement |
+|---|---|---|---|
+| 1 | 74.9 tok/s | 67.3 tok/s | +11.3% |
+| 16 | 608.1 tok/s | 577.3 tok/s | +5.3% |
+| 64 | 1376.9 tok/s | 1283.1 tok/s | +7.3% |
+
+---
+
 ## Performance Comparison Tables
 
 ### AllReduce Bus Bandwidth (8 GPUs)

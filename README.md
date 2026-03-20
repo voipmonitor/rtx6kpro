@@ -29,6 +29,7 @@ Community-sourced knowledge base for running large language models (Qwen3.5-397B
 
 ### Optimization
 - [NCCL Tuning](optimization/nccl-tuning.md) — Env vars, P2P levels, graph XML fix
+- [PCIe Oneshot AllReduce](optimization/pcie-oneshot-allreduce.md) — 5–11% faster decode, setup guide, benchmarks
 - [NVFP4 Quantization](optimization/nvfp4-quantization.md) — Setup, calibration, models
 - [Speculative Decoding](optimization/speculative-decoding.md) — MTP configs, EAGLE
 - [Docker Images](optimization/docker-images.md) — Images, compose, custom builds
