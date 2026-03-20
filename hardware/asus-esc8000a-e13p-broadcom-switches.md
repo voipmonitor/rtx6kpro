@@ -233,17 +233,17 @@ All results measured with [p2pmark](https://github.com/lukealonso/p2pmark) versi
 
 | Config | PCIe Link Score | Interconnect Score (all-to-all / ideal) | Effective Latency |
 |---|---|---|---|
-| **4 GPU (NUMA 0)** | **0.88** (55.3 GB/s) | **0.58** (129.2 / 221.3 GB/s) | **2.12 us** |
-| **8 GPU (all)** | **0.85** (53.7 GB/s) | **0.11** (46.4 / 429.2 GB/s) | **7.39 us** |
+| **4 GPU (NUMA 0)** | **0.88** (55.3 GB/s) | **0.58** (127.6 / 221.0 GB/s) | **2.12 us** |
+| **8 GPU (all)** | **0.85** (53.7 GB/s) | **0.12** (51.7 / 429.2 GB/s) | **7.39 us** |
 
 ### Comparison with Reference Systems
 
 | System | GPUs | PCIe Score | Interconnect Score (all-to-all / ideal) | Eff. Latency |
 |---|---|---|---|---|
-| **This system (ACS off)** | 4 | **0.88** | **0.58** (129 / 221 GB/s) | 2.12 us |
+| **This system (ACS off)** | 4 | **0.88** | **0.58** (128 / 221 GB/s) | 2.12 us |
 | luke (3x Microchip switches) | 4 | 0.86 | 0.64 (138 / 218 GB/s) | 4.10 us |
 | Festr (dual Turin, direct-attach) | 4 | 0.88 | 0.59 (130 / 221 GB/s) | 2.28 us |
-| **This system (ACS off)** | 8 | **0.85** | **0.11** (46 / 429 GB/s) | 7.39 us |
+| **This system (ACS off)** | 8 | **0.85** | **0.12** (52 / 429 GB/s) | 7.39 us |
 | luke (3x Microchip switches) | 8 | 0.86 | 0.44 (192 / 435 GB/s) | 6.79 us |
 | Festr (dual Turin, direct-attach) | 8 | 0.84 | 0.41 (173 / 421 GB/s) | 6.03 us |
 
@@ -252,54 +252,54 @@ All results measured with [p2pmark](https://github.com/lukealonso/p2pmark) versi
 ### Topology Probe (8 GPU, staggered reads by peer distance)
 
 ```
-+1: 48.62 GB/s avg (389 total)   ← neighbors
-+2: 36.24 GB/s avg (290 total)
-+3: 22.80 GB/s avg (182 total)
-+4: 14.77 GB/s avg (118 total)   ← max distance (cross-NUMA, opposite chip)
-+5: 22.70 GB/s avg (182 total)
-+6: 35.30 GB/s avg (282 total)
-+7: 47.43 GB/s avg (379 total)   ← neighbors (wrapping)
++1: 48.69 GB/s avg (390 total)   ← neighbors
++2: 36.05 GB/s avg (288 total)
++3: 22.85 GB/s avg (183 total)
++4: 14.72 GB/s avg (118 total)   ← max distance (cross-NUMA, opposite chip)
++5: 22.49 GB/s avg (180 total)
++6: 35.21 GB/s avg (282 total)
++7: 47.64 GB/s avg (381 total)   ← neighbors (wrapping)
 ```
 
 ### Sequential P2P Bandwidth (8 GPU, GB/s)
 
 ```
  Dst->  GPU0   GPU1   GPU2   GPU3   GPU4   GPU5   GPU6   GPU7
-GPU0:    -     54.3   54.7   54.6   38.2   37.6   38.0   37.9    same-NUMA ~55, cross ~38
-GPU4:  42.4   41.2   37.9   37.8    -     54.8   54.4   54.6    same-NUMA ~55, cross ~38-42
+GPU0:    -     54.7   54.5   54.5   38.2   38.2   37.4   38.0    same-NUMA ~55, cross ~38
+GPU4:  41.6   41.1   38.4   38.2    -     55.1   54.7   54.1    same-NUMA ~55, cross ~38-42
 ```
 
 ### AllReduce: Custom vs NCCL (4 GPU, fp16)
 
 | Size | Custom (us) | NCCL (us) | Winner |
 |---|---|---|---|
-| 256 B | 6.9 | 18.0 | Custom 2.6x |
-| 4 KB | 7.4 | 15.4 | Custom 2.1x |
-| 16 KB | 9.2 | 19.7 | Custom 2.1x |
-| 32 KB | 11.0 | 17.6 | Custom 1.6x |
-| 64 KB | 14.0 | 19.1 | Custom 1.4x |
-| 128 KB | 19.8 | 28.3 | Custom 1.4x |
-| 256 KB | 32.8 | 46.5 | Custom 1.4x |
-| 512 KB | 55.7 | 87.1 | Custom 1.6x |
-| 1 MB | 104.4 | 109.2 | Custom 1.0x |
-| 2 MB | 203.0 | 152.1 | NCCL 1.3x |
-| 32 MB | 3237 | 1790 | NCCL 1.8x |
+| 256 B | 6.2 | 14.1 | Custom 2.3x |
+| 4 KB | 6.2 | 13.5 | Custom 2.2x |
+| 16 KB | 8.4 | 14.7 | Custom 1.8x |
+| 32 KB | 10.1 | 15.4 | Custom 1.5x |
+| 64 KB | 13.2 | 16.8 | Custom 1.3x |
+| 128 KB | 18.4 | 24.6 | Custom 1.3x |
+| 256 KB | 29.7 | 40.8 | Custom 1.4x |
+| 512 KB | 51.3 | 72.0 | Custom 1.4x |
+| 1 MB | 95.8 | 86.5 | NCCL 1.1x |
+| 4 MB | 362.4 | 246.7 | NCCL 1.5x |
+| 32 MB | 2884 | 1628 | NCCL 1.8x |
 
-Custom allreduce wins up to **1 MB** on 4 GPUs.
+Custom allreduce wins up to **512 KB** on 4 GPUs. Crossover at ~1 MB.
 
 ### AllReduce: Custom vs NCCL (8 GPU, fp16)
 
 | Size | Custom (us) | NCCL (us) | Winner |
 |---|---|---|---|
-| 256 B | 9.6 | 28.6 | Custom 3.0x |
-| 4 KB | 39.5 | 65.6 | Custom 1.7x |
-| 8 KB | 68.8 | 70.8 | Custom 1.0x |
-| 16 KB | 151.2 | 69.3 | NCCL 2.2x |
-| 64 KB | 587.5 | 79.5 | NCCL 7.4x |
-| 256 KB | 2665 | 86.2 | NCCL 30.9x |
-| 32 MB | 332546 | 2976 | NCCL 112x |
+| 256 B | 8.3 | 27.1 | Custom 3.3x |
+| 4 KB | 30.6 | 57.2 | Custom 1.9x |
+| 8 KB | 64.3 | 57.6 | NCCL 1.1x |
+| 16 KB | 136.0 | 59.3 | NCCL 2.3x |
+| 64 KB | 503.9 | 67.8 | NCCL 7.4x |
+| 256 KB | 2378 | 74.0 | NCCL 32.2x |
+| 32 MB | 333806 | 2715 | NCCL 122.9x |
 
-Custom allreduce is only useful up to ~8 KB on 8 GPUs. For larger messages NCCL ring dominates.
+Custom allreduce is only useful up to ~4 KB on 8 GPUs. For larger messages NCCL ring dominates.
 
 ---
 

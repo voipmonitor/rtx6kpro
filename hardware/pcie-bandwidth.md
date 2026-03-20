@@ -75,9 +75,9 @@ luke's [p2pmark](https://github.com/lukealonso/p2pmark) tool provides a standard
 | luke (3x switches, single CPU) | 0.86 (54.3 GB/s) | 0.44 (191.8 / 434.7 GB/s) | 6.79 us |
 | Festr (dual Turin, direct-attach) | 0.84 (52.7 GB/s) | 0.41 (173.1 / 421.3 GB/s) | 6.03 us |
 | Grimulkan (4x switches, single CPU) | 0.86 (53.9 GB/s) | 0.38 (164.3 / 431.2 GB/s) | 7.04 us |
-| [voipmonitor (ASUS ESC8000A-E13P, Broadcom, ACS off)](asus-esc8000a-e13p-broadcom-switches.md) | 0.85 (53.7 GB/s) | 0.11 (46.4 / 429.2 GB/s) | 7.39 us |
+| [voipmonitor (ASUS ESC8000A-E13P, Broadcom, ACS off)](asus-esc8000a-e13p-broadcom-switches.md) | 0.85 (53.7 GB/s) | 0.12 (51.7 / 429.2 GB/s) | 7.39 us |
 
-> **Note:** voipmonitor's 8-GPU all-to-all score (0.11) is low because the dual-socket Infinity Fabric saturates under 56 concurrent flows. Same-NUMA 4-GPU performance is excellent (0.58, comparable to Festr). See [detailed page](asus-esc8000a-e13p-broadcom-switches.md) for full analysis.
+> **Note:** voipmonitor's 8-GPU all-to-all score (0.12) is low because the dual-socket Infinity Fabric saturates under 56 concurrent flows. Same-NUMA 4-GPU performance is excellent (0.58, comparable to Festr). See [detailed page](asus-esc8000a-e13p-broadcom-switches.md) for full analysis.
 
 ### p2pmark Scores (4 GPUs)
 
@@ -85,7 +85,7 @@ luke's [p2pmark](https://github.com/lukealonso/p2pmark) tool provides a standard
 |--------|----------------|------------------------|-------------------|
 | luke (1 switch) | 0.86 | 0.64 (138.3 / 217.7 GB/s) | 4.10 us |
 | Festr (Turin, same NUMA) | 0.88 | 0.59 (129.7 / 220.6 GB/s) | 2.28 us |
-| [voipmonitor (ASUS ESC8000A-E13P, Broadcom, ACS off)](asus-esc8000a-e13p-broadcom-switches.md) | 0.88 | 0.58 (129.2 / 221.3 GB/s) | 2.12 us |
+| [voipmonitor (ASUS ESC8000A-E13P, Broadcom, ACS off)](asus-esc8000a-e13p-broadcom-switches.md) | 0.88 | 0.58 (127.6 / 221.0 GB/s) | 2.12 us |
 
 ---
 
