@@ -47,10 +47,7 @@ Model                                      Mean KLD   Median KLD    P95 KLD    P
 flashinfer_cutlass (fp4 + moe)             0.035637     0.006939   0.147900   0.534100     4.4300
 cutedsl + cudnn (moe cutedsl, fp4 cudnn)   0.036000     0.006900   0.148700   0.538100     4.4300
 cutlass MoE                                0.036000     0.006900   0.148800   0.538100     4.4300
-b12x (fp4 + moe)                           0.510000     0.167000   2.834000   5.884000    18.0200
 ```
-
-> **b12x is 14x worse** than all other backends. The b12x backend has a fundamental quality issue unrelated to the quantization checkpoint.
 
 ### Ranking
 
