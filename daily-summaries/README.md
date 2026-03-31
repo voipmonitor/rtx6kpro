@@ -9,6 +9,7 @@ Automated daily summaries of the [RTX6kPRO Discord](https://discord.gg/FJye6yaWN
 
 | Date | Highlights |
 |------|------------|
+| [2026-03-31](2026-03/2026-03-31.md) | b12x fused MoE kernel released (lukealonso): single-kernel launch replaces 7+ separate SGLang dispat |
 | [2026-03-30](2026-03/2026-03-30.md) | b12x formally documented: 29-37% faster than cutlass at conc 1-8 for Qwen3.5-397B (92.4 vs 70.2 tok/ |
 | [2026-03-29](2026-03/2026-03-29.md) | b12x stable; image `voipmonitor/sglang:test-cu130`, flags: `--fp4-gemm-backend b12x --moe-runner-bac |
 | [2026-03-28](2026-03/2026-03-28.md) | FlashInfer 0.6.7 released with SM120 updates; CuteDSL kernels enable `--moe-runner-backend flashinfe |
@@ -44,6 +45,7 @@ Automated daily summaries of the [RTX6kPRO Discord](https://discord.gg/FJye6yaWN
 
 | Date | Highlights |
 |------|------------|
+| [2026-03-31](2026-03/2026-03-31.md) | b12x fused MoE kernel released (lukealonso): single-kernel launch replaces 7+ separate SGLang dispat |
 | [2026-02-28](2026-02/2026-02-28.md) | GLM-5 NVFP4 confirmed running on 8x RTX 6000 via SGLang (TP8, bf16 KV): 44 tok/s at 0 context, 30 to |
 | [2026-02-27](2026-02/2026-02-27.md) | MiniMax M2.5 NVFP4 on 2x RTX 6000 Pro (300W) vs Full FP8 on 4x RTX 6000 Pro (300W): NVFP4 2-card ver |
 | [2026-02-26](2026-02/2026-02-26.md) | Deepseek reportedly withholding latest AI model from US chipmakers including Nvidia (Reuters); commu |
