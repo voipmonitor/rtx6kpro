@@ -137,7 +137,8 @@ python -m sglang.launch_server \
   --fp4-gemm-backend flashinfer_cudnn \
   --context-length 128000 \
   --reasoning-parser qwen3 \
-  --tool-call-parser qwen3_coder
+  --tool-call-parser qwen3_coder \
+  --sleep-on-idle
 ```
 
 ### 122B-A10B NVFP4 (2x GPUs)
@@ -156,7 +157,8 @@ python -m sglang.launch_server \
   --fp4-gemm-backend flashinfer_cudnn \
   --context-length 262144 \
   --reasoning-parser qwen3 \
-  --tool-call-parser qwen3_coder
+  --tool-call-parser qwen3_coder \
+  --sleep-on-idle
 ```
 
 ---

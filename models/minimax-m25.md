@@ -170,6 +170,7 @@ python3 -m sglang.launch_server \
   --moe-runner-backend flashinfer_cutlass \
   --disable-custom-all-reduce \
   --enable-flashinfer-allreduce-fusion \
+  --sleep-on-idle \
   --host 0.0.0.0 --port 5000
 ```
 
@@ -188,7 +189,8 @@ python -m sglang.launch_server \
   --host 0.0.0.0 --port 9504 \
   --trust-remote-code \
   --fp8-gemm-backend triton \
-  --moe-runner-backend triton
+  --moe-runner-backend triton \
+  --sleep-on-idle
 ```
 
 Optimize with tuned kernels:
@@ -212,7 +214,8 @@ python -m sglang.launch_server \
     --cuda-graph-max-bs 32 \
     --max-running-requests 32 \
     --enable-torch-compile \
-    --torch-compile-max-bs 4
+    --torch-compile-max-bs 4 \
+    --sleep-on-idle
 ```
 
 ### Concurrency Tip: TP2 + DP2 on 4 GPUs
@@ -248,6 +251,7 @@ python3 -m sglang.launch_server \
   --attention-backend flashinfer \
   --moe-runner-backend flashinfer_cutlass \
   --kv-cache-dtype bf16 \
+  --sleep-on-idle \
   --host 0.0.0.0 --port 8000
 ```
 

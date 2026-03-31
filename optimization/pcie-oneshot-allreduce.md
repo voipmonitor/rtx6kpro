@@ -204,6 +204,7 @@ SGLANG_ENABLE_SPEC_V2=True python3 -m sglang.launch_server \
   --mem-fraction-static 0.97 \
   --host 0.0.0.0 --port 5000 \
   --enable-metrics \
+  --sleep-on-idle \
   --schedule-conservativeness 0.1 \
   --enable-pcie-oneshot-allreduce
 ```
@@ -213,7 +214,8 @@ SGLANG_ENABLE_SPEC_V2=True python3 -m sglang.launch_server \
 ```bash
 SGLANG_ENABLE_SPEC_V2=True python3 -m sglang.launch_server \
   ... (same params as above, but replace last flag with:) \
-  --disable-custom-all-reduce
+  --disable-custom-all-reduce \
+  --sleep-on-idle
 ```
 
 ### With NCCL_P2P_LEVEL=SYS

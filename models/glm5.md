@@ -250,6 +250,7 @@ docker run --gpus all \
     --disable-custom-all-reduce \
     --enable-flashinfer-allreduce-fusion \
     --enable-metrics \
+    --sleep-on-idle \
     --attention-backend flashinfer \
     --fp4-gemm-backend b12x \
     --moe-runner-backend b12x \

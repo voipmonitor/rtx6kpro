@@ -270,7 +270,8 @@ services:
       stack: 67108864
 ```
 
----
+--- \
+--sleep-on-idle
 
 ## Custom Image Builds
 

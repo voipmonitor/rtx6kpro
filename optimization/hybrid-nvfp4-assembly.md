@@ -378,7 +378,8 @@ SGLANG_ENABLE_SPEC_V2=True python3 -m sglang.launch_server \
   --page-size 64 \
   --mem-fraction-static 0.85 \
   --host 0.0.0.0 --port 5000 \
-  --disable-custom-all-reduce
+  --disable-custom-all-reduce \
+  --sleep-on-idle
 ```
 
 You will see "not found in params_dict" warnings during loading — these are normal (TP sharding: each rank only loads 1/4 of experts, warnings appear for experts assigned to other ranks).

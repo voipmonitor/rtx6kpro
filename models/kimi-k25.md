@@ -214,6 +214,7 @@ python -m sglang.launch_server \
   --host 0.0.0.0 --port 5000 \
   --mem-fraction-static 0.94 \
   --enable-metrics \
+  --sleep-on-idle \
   --attention-backend flashinfer \
   --tool-call-parser kimi_k2 \
   --reasoning-parser kimi_k2 \
@@ -240,7 +241,8 @@ NCCL_P2P_LEVEL=4 python -m sglang.launch_server \
   --quantization modelopt_fp4 \
   --model-loader-extra-config '{"enable_multithread_load": true,"num_threads": 119}' \
   --mem-fraction-static 0.93 \
-  --cuda-graph-max-bs 8
+  --cuda-graph-max-bs 8 \
+  --sleep-on-idle
 ```
 
 Result: 53 tok/s, ~450K KV cache with FP8 cache.
@@ -263,7 +265,8 @@ python3 -m sglang.launch_server \
   --mem-fraction-static 0.9 \
   --host 0.0.0.0 \
   --port 8000 \
-  --max-running-requests 8
+  --max-running-requests 8 \
+  --sleep-on-idle
 ```
 
 **Requires:** luke's custom allreduce SGLang patch: https://github.com/lukealonso/sglang/commits/custom_ar/

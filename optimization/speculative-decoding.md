@@ -143,7 +143,8 @@ SGLANG_ENABLE_SPEC_V2=1 python3 -m sglang.launch_server \
   --speculative-num-steps 3 \
   --speculative-eagle-topk 1 \
   --speculative-num-draft-tokens 4 \
-  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}'
+  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}' \
+  --sleep-on-idle
 ```
 
 Result: ~130 TPS with MTP=3 on Qwen3.5 NVFP4.

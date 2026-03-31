@@ -174,7 +174,8 @@ python -m sglang.launch_server \
   --fp4-gemm-backend flashinfer_cudnn \
   --context-length 262144 \
   --reasoning-parser qwen3 \
-  --tool-call-parser qwen3_coder
+  --tool-call-parser qwen3_coder \
+  --sleep-on-idle
 ```
 
 With MTP and full tuning (~130 tok/s):
@@ -200,7 +201,8 @@ python3 -m sglang.launch_server \
   --served-model-name qwen3.5 \
   --max-running-requests 8 \
   --fp8-gemm-backend triton \
-  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}'
+  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}' \
+  --sleep-on-idle
 ```
 
 ### Qwen3.5-397B NVFP4 (8 GPUs)
@@ -230,6 +232,7 @@ python3 -m sglang.launch_server \
   --mamba-scheduler-strategy extra_buffer \
   --page-size 64 \
   --mem-fraction-static 0.85 \
+  --sleep-on-idle \
   --host 0.0.0.0 --port 8000
 ```
 
@@ -251,7 +254,8 @@ python -m sglang.launch_server \
   --speculative-num-draft-tokens 4 \
   --attention-backend triton \
   --fp8-gemm-backend triton \
-  --moe-runner-backend triton
+  --moe-runner-backend triton \
+  --sleep-on-idle
 ```
 
 ### Kimi K2.5 INT4 (8 GPUs)
@@ -268,6 +272,7 @@ python -m sglang.launch_server \
   --host 0.0.0.0 --port 5000 \
   --mem-fraction-static 0.94 \
   --enable-metrics \
+  --sleep-on-idle \
   --attention-backend flashinfer \
   --tool-call-parser kimi_k2 \
   --reasoning-parser kimi_k2 \
@@ -296,7 +301,8 @@ NCCL_P2P_LEVEL=4 python -m sglang.launch_server \
   --quantization modelopt_fp4 \
   --model-loader-extra-config '{"enable_multithread_load": true,"num_threads": 119}' \
   --mem-fraction-static 0.93 \
-  --cuda-graph-max-bs 8
+  --cuda-graph-max-bs 8 \
+  --sleep-on-idle
 ```
 
 Result: 53 tok/s, ~450K KV cache with FP8 cache. NVFP4 variant is slower than native INT4 with Marlin kernels.
@@ -338,7 +344,8 @@ python3 -m sglang.launch_server \
   --speculative-num-steps 3 \
   --speculative-num-draft-tokens 4 \
   --speculative-eagle-topk 1 \
-  --enable-metrics
+  --enable-metrics \
+  --sleep-on-idle
 ```
 
 Use `festr2/GLM-5-NVFP4-MTP` (includes MTP layer 78 in BF16). The `lukealonso/GLM-5-NVFP4` checkpoint does NOT include MTP weights.
@@ -374,7 +381,8 @@ python3 -m sglang.launch_server \
   --host 0.0.0.0 --port 5000 \
   --served-model-name glm-5 \
   --max-running-requests 8 \
-  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 8}'
+  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 8}' \
+  --sleep-on-idle
 ```
 
 ---
@@ -451,7 +459,8 @@ SGLANG_ENABLE_SPEC_V2=1 python3 -m sglang.launch_server \
   --speculative-num-steps 3 \
   --speculative-eagle-topk 1 \
   --speculative-num-draft-tokens 4 \
-  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}'
+  --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}' \
+  --sleep-on-idle
 ```
 
 EAGLE3 support for Kimi K2.5 is in development:
