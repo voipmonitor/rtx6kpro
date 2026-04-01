@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-01](2026-04/2026-04-01.md) | PCIe oneshot AllReduce + fusion gives +7-8% decode throughput on SM120 across all tested models (Qwe |
 | [2026-03-31](2026-03/2026-03-31.md) | b12x fused MoE kernel launched for SM120: 29–37% faster than cutlass at conc 1–8 on Qwen3.5-397B |
 | [2026-03-30](2026-03/2026-03-30.md) | b12x benchmark (4x RTX 6000, TP4): 1.32x vs cutlass at conc=1-8; cutlass wins above conc=16; vLLM pe |
 | [2026-03-29](2026-03/2026-03-29.md) | SGLang PR #21601: NVFP4 KV cache for Blackwell — ~2x memory vs FP8, no accuracy loss on GSM8K |
@@ -46,6 +47,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-01](2026-04/2026-04-01.md) | PCIe oneshot AllReduce + fusion gives +7-8% decode throughput on SM120 across all tested models (Qwe |
 | [2026-02-28](2026-02/2026-02-28.md) | GLM-5 NVFP4 on 8 cards: 44 tok/s @ 0 ctx, 30 @ 150k; 4000 tok/s prefill at 400W |
 | [2026-02-27](2026-02/2026-02-27.md) | Kimi K2.5 decode on Turin (8 cards, DCP=8): 65 tok/s @ 0 ctx, 36 @ 100k, 27 @ 200k |
 | [2026-02-26](2026-02/2026-02-26.md) | Power benchmark: 300W→500W gives up to 30% more throughput at 64 concurrency for MiniMax M2.5 NVFP4 |
