@@ -247,8 +247,7 @@ docker run --gpus all \
     --mem-fraction-static 0.85 \
     --chunked-prefill-size 16384 \
     --host 0.0.0.0 --port 5000 \
-    --enable-pcie-oneshot-allreduce \
-    --enable-pcie-oneshot-allreduce-fusion \
+    --disable-custom-all-reduce \
     --enable-metrics \
     --sleep-on-idle \
     --attention-backend flashinfer \
@@ -278,8 +277,7 @@ For high-concurrency serving (4+ users), switch MoE backend:
 | `--tp 8` | All 8 GPUs required; model is 57 GB/GPU before KV cache |
 | `--attention-backend flashinfer` | Architecture-independent; flashmla/trtllm are SM90/SM100 only |
 | `--moe-runner-backend cutlass` | Fastest for MTP speculative decoding |
-| `--enable-pcie-oneshot-allreduce` | PCIe oneshot allreduce -- recommended for PCIe-only setups (replaces `--disable-custom-all-reduce`) |
-| `--enable-pcie-oneshot-allreduce-fusion` | Fuses allreduce with attention -- measurable throughput gain on PCIe |
+| `--disable-custom-all-reduce` | Required for 8 GPU cross-socket — PCIe oneshot hurts on cross-NUMA due to Infinity Fabric barrier latency. Use `--enable-pcie-oneshot-allreduce` only for ≤4 GPU same-NUMA setups. |
 | `--mem-fraction-static 0.85-0.92` | Leave 7-15 GB for CUDA workspace per GPU |
 | `SGLANG_ENABLE_JIT_DEEPGEMM=0` | DeepGemm not supported on SM120 |
 | `SGLANG_ENABLE_DEEP_GEMM=0` | Fully disables DeepGemm fallback path |

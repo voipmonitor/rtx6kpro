@@ -1,6 +1,8 @@
 # PCIe Oneshot AllReduce for Inference
 
-Custom PCIe allreduce kernel that replaces NCCL for small messages on PCIe topologies (without NVLink). Provides a consistent **~7% faster decode throughput** across models on RTX PRO 6000 Blackwell systems (verified on both Qwen3.5 TP=4 and GLM-5 TP=8).
+Custom PCIe allreduce kernel that replaces NCCL for small messages on PCIe topologies (without NVLink). Provides **~7% faster decode throughput on 4 GPU (same NUMA)** but **does not help on 8 GPU cross-socket** where Infinity Fabric latency makes the system-scope barrier too expensive.
+
+> **Recommendation:** Use `--enable-pcie-oneshot-allreduce --enable-pcie-oneshot-allreduce-fusion` for **≤4 GPU** setups. For **8 GPU cross-socket**, stick with `--disable-custom-all-reduce` (NCCL is faster).
 
 ## Table of Contents
 
@@ -110,14 +112,28 @@ xychart-beta
 
 ### Cross-Model Verification (conc=1, context=0)
 
-PCIe oneshot delivers a consistent ~7% improvement across different models and GPU counts:
+PCIe oneshot helps on **4 GPU (same NUMA)** but **hurts on 8 GPU cross-socket**:
 
-| Model | TP | MoE Backend | Without Oneshot | With Oneshot | Improvement |
-|---|---|---|---|---|---|
-| Qwen3.5-397B | 4 | cutlass | 70.6 tok/s | 76.1 tok/s | **+7.8%** |
-| Qwen3.5-397B | 4 | b12x | — | 98.4 tok/s | — |
-| Qwen3.5-397B | 4 | b12x + MTP | — | 165.9 tok/s | — |
-| GLM-5 | 8 | b12x | 52.8 tok/s | 56.6 tok/s | **+7.2%** |
+#### 4 GPU (same NUMA) — recommended
+
+| Model | MoE Backend | Without Oneshot | With Oneshot | Improvement |
+|---|---|---|---|---|
+| Qwen3.5-397B TP=4 | cutlass | 70.6 tok/s | 76.1 tok/s | **+7.8%** |
+| Qwen3.5-397B TP=4 | b12x | — | 98.4 tok/s | — |
+| Qwen3.5-397B TP=4 | b12x + MTP | — | 165.9 tok/s | — |
+
+#### 8 GPU (cross-socket) — NOT recommended
+
+| Model | Config | NCCL baseline | PCIe oneshot | Change |
+|---|---|---|---|---|
+| GLM-5 TP=8, b12x, no MTP | c=1 ctx=0 | 52.8 tok/s | 56.6 tok/s | +7.2% |
+| GLM-5 TP=8, b12x, MTP | c=1 ctx=0 | 102.0 tok/s | 97.6 tok/s | **-4.3%** |
+| GLM-5 TP=8, b12x, MTP | c=1 ctx=16k | 92.3 tok/s | 87.5 tok/s | **-5.2%** |
+| GLM-5 TP=8, b12x, MTP | c=1 ctx=32k | 84.6 tok/s | 71.3 tok/s | **-15.7%** |
+
+**Why 8 GPU is slower:** On dual-socket AMD EPYC, GPUs 0-3 and 4-7 are on separate NUMA nodes connected via Infinity Fabric. The PCIe oneshot kernel's system-scope barrier (`__threadfence_system`) must wait for visibility across the Infinity Fabric link, which adds significant latency. NCCL's ring/tree algorithms pipeline data and avoid global barriers, making them faster for cross-socket communication.
+
+With MTP, the speculative tokens increase the effective batch size (and thus allreduce payload), pushing more messages above the 48KB crossover where NCCL wins — compounding the penalty.
 
 ### Auto Crossover Thresholds
 
@@ -126,7 +142,7 @@ The auto-crossover benchmark runs at server startup and determines the message s
 | GPU Count | Crossover Threshold | Notes |
 |---|---|---|
 | 4 GPUs (same NUMA) | **120 KB** | Higher threshold — oneshot wins over a wider range |
-| 8 GPUs (cross-NUMA) | **48 KB** | Lower threshold — cross-socket overhead reduces oneshot advantage |
+| 8 GPUs (cross-NUMA) | **48 KB** | Much lower — Infinity Fabric latency penalizes system-scope barriers |
 
 ---
 
