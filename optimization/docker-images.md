@@ -36,6 +36,8 @@ Docker is the primary deployment method for inference engines on RTX PRO 6000 Bl
 
 | Image | Author | Purpose | Notes |
 |-------|--------|---------|-------|
+| **`voipmonitor/sglang:cu130`** | Festr | **SGLang with b12x 0.7.1 attention+MoE** | **Recommended for SGLang.** SM120 patches, FlashInfer from source, b12x 0.7.1 (full attn+MoE, all batch sizes, CUDA graphs to bs=64), PCIe oneshot allreduce, NCCL graph. |
+| **`voipmonitor/vllm:cu130`** | Festr | **vLLM with SM120 patches** | **Recommended for vLLM.** Cherry-picked PRs (#35675, #35936, #37132), FlashInfer from source. |
 | `voipmonitor/vllm-openai:cu130-nightly-patched` | Festr | vLLM with Kimi K2.5 patches | Includes FP8 KV + DCP fixes |
 | `voipmonitor/llm-pytorch-blackwell:nightly` | Festr | Full SGLang + vLLM for Blackwell | Recommended for GLM-5 |
 | `voipmonitor/llm-pytorch-blackwell:customallreduce` | Festr | SGLang with luke's custom allreduce | For PCIe switch topologies |
