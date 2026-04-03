@@ -21,6 +21,7 @@ Community-sourced knowledge base for running large language models (Qwen3.5-397B
 - [PCIe Bandwidth](hardware/pcie-bandwidth.md) — P2P measurements, BAR1, latency
 - [GPU Configurations](hardware/gpu-configs.md) — 4×/8× builds, VRAM, power, rigs
 - [ASUS ESC8000A-E13P + Broadcom Switches](hardware/asus-esc8000a-e13p-broadcom-switches.md) — Topology, ACS disable, P2P proof, benchmarks
+- [ASRock WRX90 + c-payne Microchip Switches](hardware/wrx90-cpayne-microchip-switches.md) — Hierarchy topology, uniform BW, no collapse bug
 
 ### Inference Engines
 - [vLLM](inference-engines/vllm.md) — Config, MTP, model-specific commands
