@@ -43,20 +43,20 @@ For comparison with switched topologies on similar GPUs see [WRX90 + 2× c-payne
 
 Eight GPUs, each on its own CPU root port, distributed across two sockets. There are no PCIe switches in the GPU path — every GPU sits on a `Speed 32GT/s, Width x16` root port (`xx:01.1`) directly off the CPU.
 
-```
+```mermaid
 graph TD
     subgraph S0["Socket 0 — EPYC 9124 (NUMA 0, cores 0-15)"]
-        RP00["Root Port<br/>00:01.1<br/>Gen5 x16"] --> GPU0["GPU0 — 01:00.0"]
-        RP20["Root Port<br/>20:01.1<br/>Gen5 x16"] --> GPU1["GPU1 — 21:00.0"]
-        RP40["Root Port<br/>40:01.1<br/>Gen5 x16"] --> GPU2["GPU2 — 41:00.0"]
-        RP60["Root Port<br/>60:01.1<br/>Gen5 x16"] --> GPU3["GPU3 — 61:00.0"]
+        RP00["Root Port00:01.1Gen5 x16"] --> GPU0["GPU0 — 01:00.0"]
+        RP20["Root Port20:01.1Gen5 x16"] --> GPU1["GPU1 — 21:00.0"]
+        RP40["Root Port40:01.1Gen5 x16"] --> GPU2["GPU2 — 41:00.0"]
+        RP60["Root Port60:01.1Gen5 x16"] --> GPU3["GPU3 — 61:00.0"]
     end
 
     subgraph S1["Socket 1 — EPYC 9124 (NUMA 1, cores 16-31)"]
-        RP80["Root Port<br/>80:01.1<br/>Gen5 x16"] --> GPU4["GPU4 — 81:00.0"]
-        RPa0["Root Port<br/>a0:01.1<br/>Gen5 x16"] --> GPU5["GPU5 — a1:00.0"]
-        RPc0["Root Port<br/>c0:01.1<br/>Gen5 x16"] --> GPU6["GPU6 — c1:00.0"]
-        RPe0["Root Port<br/>e0:01.1<br/>Gen5 x16"] --> GPU7["GPU7 — e1:00.0"]
+        RP80["Root Port80:01.1Gen5 x16"] --> GPU4["GPU4 — 81:00.0"]
+        RPa0["Root Porta0:01.1Gen5 x16"] --> GPU5["GPU5 — a1:00.0"]
+        RPc0["Root Portc0:01.1Gen5 x16"] --> GPU6["GPU6 — c1:00.0"]
+        RPe0["Root Porte0:01.1Gen5 x16"] --> GPU7["GPU7 — e1:00.0"]
     end
 
     S0 ---|"xGMI inter-socket fabric"| S1
