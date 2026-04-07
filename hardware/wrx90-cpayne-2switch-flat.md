@@ -66,13 +66,14 @@ graph TD
 
 ### Key Differences from 3-Switch Topology
 
-| | 2-Switch (this) | [3-Switch](wrx90-cpayne-microchip-switches.md) |
-|---|---|---|
-| **Root switch** | No | Yes |
-| **Cross-switch path** | GPU → Switch → CPU root port → CPU → root port → Switch → GPU | GPU → Leaf → Root Switch → Leaf → GPU |
-| **Cross-switch uses CPU?** | **Yes** | **No** |
-| **GPUs per switch** | 4 | 2 |
-| **nvidia-smi cross-switch** | NODE | NODE (but fabric-routed) |
+| | 2-Switch (this) | [3-Switch](wrx90-cpayne-microchip-switches.md) | EPYC 9124 Direct-Attach |
+|---|---|---|---|
+| **Root switch** | No | Yes | N/A (no switches) |
+| **Cross-switch path** | GPU → Switch → CPU root port → CPU → root port → Switch → GPU | GPU → Leaf → Root Switch → Leaf → GPU | GPU → CPU RP → xGMI → CPU RP → GPU |
+| **Cross-switch uses CPU?** | **Yes** | **No** | **Yes (xGMI)** |
+| **GPUs per switch** | 4 | 2 | 4 per socket (no switch) |
+| **nvidia-smi cross-switch** | NODE | NODE (but fabric-routed) | SYS (cross-socket) |
+| **Sockets / NUMA nodes** | 1 / 1 | 1 / 1 | 2 / 2 |
 
 ### nvidia-smi Topology
 
@@ -240,21 +241,23 @@ No collapse. Microchip switches handle multi-destination posted writes correctly
 
 ### Same Hardware, Different Topology (WRX90)
 
-| Metric | 2-Switch Flat (this) | [3-Switch Hierarchy](wrx90-cpayne-microchip-switches.md) | Difference |
-|---|---|---|---|
-| **Same-switch BW** | 53.4 GB/s | 54.1 GB/s | ~same |
-| **Cross-switch BW** | 53.1 GB/s | **54.2 GB/s** | 3-sw 2% better |
-| **Cross-switch latency** | **1.40 µs** | **1.14 µs** | 3-sw **19% better** |
-| **4-GPU all-to-all** | 121 GB/s | **126 GB/s** | 3-sw 4% better |
-| **8-GPU all-to-all** | 162 GB/s | **196 GB/s** | **3-sw 21% better** |
-| **Interconnect score** | 0.38 | **0.45** | 3-sw 18% better |
-| **Concurrent latency** | 7.48 µs | **6.56 µs** | 3-sw 12% better |
-| **4-GPU p2pmark latency** | 2.11 µs | 2.11 µs | Same |
-| **+4 distance probe** | 12.6 GB/s | **25.6 GB/s** | **3-sw 2× better** |
-| **2-flow cross (same src)** | 53.8 GB/s | 53.9 GB/s | Same |
-| **Cross uplink used?** | Yes (CPU) | **No (root switch)** | Key difference |
-| **Posted-write collapse** | No | No | Both OK |
-| **PCIe oneshot crossover** | 120 KB | 120 KB | Same (TP=4) |
+Note: the EPYC 9124 column is included for reference but runs on different host hardware (dual-socket AMD EPYC 9124, Gigabyte MZB3-G43-000, 2 NUMA nodes) and is actually limited by running 4/24 memory channels — see the [EPYC 9124 direct-attach report](epyc9124-direct-attach.md) for details.
+
+| Metric | 2-Switch Flat (this) | [3-Switch Hierarchy](wrx90-cpayne-microchip-switches.md) | 2xEPYC 9124 Direct-Attach | Difference |
+|---|---|---|---|---|
+| **Same-switch BW** | 53.4 GB/s | 54.1 GB/s | **57.2 GB/s** (same-socket, unidir) | direct-attach highest |
+| **Cross-switch BW** | 53.1 GB/s | **54.2 GB/s** | 42.0–44.4 GB/s (cross-socket unidir) | xGMI tier slower |
+| **Cross-switch latency** | **1.40 µs** | **1.14 µs** | **0.91 µs** (cross-socket) | direct-attach best |
+| **4-GPU all-to-all** | 121 GB/s | **126 GB/s** | not measured | — |
+| **8-GPU all-to-all** | 162 GB/s | **196 GB/s** | 184.6 GB/s | 3-sw still leads |
+| **Interconnect score** | 0.38 | **0.45** | 0.41 | 3-sw leads |
+| **Concurrent latency** | 7.48 µs | 6.56 µs | **5.83 µs** | direct-attach best |
+| **4-GPU p2pmark latency** | 2.11 µs | 2.11 µs | not measured | — |
+| **+4 distance probe** | 12.6 GB/s | **25.6 GB/s** | 19.3 GB/s | 3-sw best, direct-attach 2nd |
+| **2-flow cross (same src)** | 53.8 GB/s | 53.9 GB/s | not measured | — |
+| **Cross uplink used?** | Yes (CPU) | **No (root switch)** | Yes (xGMI) | 3-sw unique |
+| **Posted-write collapse** | No | No | N/A (no switches) | all OK |
+| **PCIe oneshot crossover** | 120 KB | 120 KB | 72 KB (TP=8, not TP=4) | different TP |
 
 ### Key Takeaway
 
@@ -272,6 +275,7 @@ The 2-switch flat topology is essentially the same as having Broadcom-style "two
 |---|---|---|---|
 | **WRX90 + 3× c-payne (hierarchy)** | **196 GB/s** | **0.45** | 1.14 µs |
 | Turin direct-attach | 190 GB/s | 0.41 | 0.84 µs |
+| EPYC 9124 direct-attach (dual socket) | 184.6 GB/s | 0.41 | 0.91 µs |
 | **WRX90 + 2× c-payne (flat, this)** | **162 GB/s** | **0.38** | **1.40 µs** |
 | ASUS ESC8000A-E13P (Broadcom) | 52 GB/s | 0.12 | 1.34 µs |
 
