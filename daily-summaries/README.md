@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-08](2026-04/2026-04-08.md) | b12x hits 220 t/s single-user decode on 2x RTX PRO 6000; 198 t/s on Qwen3.5-122B vs 131 t/s baseline |
 | [2026-04-07](2026-04/2026-04-07.md) | GLM-5 NVFP4 on 8×RTX PRO 6000: SGLang+MTP leads at 99 tok/s single-user (0 ctx), 249.8 tok/s at C=4 |
 | [2026-04-06](2026-04/2026-04-06.md) | Qwen3.5 397B on 4×RTX PRO 6000: sglang record 108 tok/s (no MTP) / 180 tok/s (with MTP); vLLM now 9 |
 | [2026-04-05](2026-04/2026-04-05.md) | vLLM 0.19 MoE TP regression identified and fixed — PR vllm-project/vllm#38990 awaiting merge; bran |
@@ -53,6 +54,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-08](2026-04/2026-04-08.md) | b12x hits 220 t/s single-user decode on 2x RTX PRO 6000; 198 t/s on Qwen3.5-122B vs 131 t/s baseline |
 | [2026-04-07](2026-04/2026-04-07.md) | GLM-5 NVFP4 on 8×RTX PRO 6000: SGLang+MTP leads at 99 tok/s single-user (0 ctx), 249.8 tok/s at C=4 |
 | [2026-04-06](2026-04/2026-04-06.md) | Qwen3.5 397B on 4×RTX PRO 6000: sglang record 108 tok/s (no MTP) / 180 tok/s (with MTP); vLLM now 9 |
 | [2026-04-05](2026-04/2026-04-05.md) | vLLM 0.19 MoE TP regression identified and fixed — PR vllm-project/vllm#38990 awaiting merge; bran |
