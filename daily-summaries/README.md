@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-12](2026-04/2026-04-12.md) | MiniMax M2.7 dropped (~1am) with same architecture as M2.5 — just a weight update. luke confirmed  |
 | [2026-04-11](2026-04/2026-04-11.md) | vLLM MTP reaches sglang parity after a week of work by Festr; key insight was using sglang's eager-m |
 | [2026-04-10](2026-04/2026-04-10.md) | GLM-5.1 NVFP4 quant live on 8x RTX Pro 6000: 131 tok/s with MTP, 95 tok/s via flashinfer cutlass. Bu |
 | [2026-04-09](2026-04/2026-04-09.md) | GLM-5.1 NVFP4 upload by luke — 52 tok/s single request on 8x RTX 6000 PRO (NVFP4, b12x, sglang), t |
@@ -57,6 +58,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-12](2026-04/2026-04-12.md) | MiniMax M2.7 dropped (~1am) with same architecture as M2.5 — just a weight update. luke confirmed  |
 | [2026-04-11](2026-04/2026-04-11.md) | vLLM MTP reaches sglang parity after a week of work by Festr; key insight was using sglang's eager-m |
 | [2026-04-10](2026-04/2026-04-10.md) | GLM-5.1 NVFP4 quant live on 8x RTX Pro 6000: 131 tok/s with MTP, 95 tok/s via flashinfer cutlass. Bu |
 | [2026-04-09](2026-04/2026-04-09.md) | GLM-5.1 NVFP4 upload by luke — 52 tok/s single request on 8x RTX 6000 PRO (NVFP4, b12x, sglang), t |
