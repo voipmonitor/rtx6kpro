@@ -168,7 +168,6 @@ python3 -m sglang.launch_server \
   --attention-backend flashinfer \
   --moe-runner-backend flashinfer_cutlass \
   --enable-pcie-oneshot-allreduce \
-  --enable-pcie-oneshot-allreduce-fusion \
   --sleep-on-idle \
   --host 0.0.0.0 --port 5000
 ```

@@ -2,7 +2,7 @@
 
 Custom PCIe allreduce kernel that replaces NCCL for small messages on PCIe topologies (without NVLink). Provides **~7% faster decode throughput on 4 GPU (same NUMA)** but **does not help on 8 GPU cross-socket** where Infinity Fabric latency makes the system-scope barrier too expensive.
 
-> **Recommendation:** Use `--enable-pcie-oneshot-allreduce --enable-pcie-oneshot-allreduce-fusion` for **≤4 GPU** setups. For **8 GPU cross-socket**, stick with `--disable-custom-all-reduce` (NCCL is faster).
+> **Recommendation:** Use `--enable-pcie-oneshot-allreduce` for **≤4 GPU** setups. For **8 GPU cross-socket**, stick with `--disable-custom-all-reduce` (NCCL is faster).
 
 ## Table of Contents
 

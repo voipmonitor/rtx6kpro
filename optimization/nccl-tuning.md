@@ -546,7 +546,6 @@ Instead of the NCCL tuner plugin, use lukealonso's **PCIe oneshot allreduce** wi
 
 ```
 --enable-pcie-oneshot-allreduce            # PCIe oneshot for small messages
---enable-pcie-oneshot-allreduce-fusion      # fused allreduce + RMSNorm kernel
 ```
 
 > **Important:** On direct-attach topologies (no PCIe switch), you **must** configure the nvidia driver for direct P2P BAR1 mapping, otherwise PCIe oneshot allreduce will be ~15× slower than NCCL and the auto-crossover will silently disable it. See [Critical Prerequisite](pcie-oneshot-allreduce.md#critical-prerequisite-nvidia-p2p-driver-config). `NCCL_P2P_LEVEL=SYS` does NOT help — it only affects NCCL, not the custom allreduce kernel.

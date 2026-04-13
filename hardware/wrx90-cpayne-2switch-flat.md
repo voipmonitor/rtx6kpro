@@ -308,7 +308,7 @@ python3 -m sglang.launch_server \
   --tool-call-parser glm47 \
   --reasoning-parser glm45 \
   --quantization modelopt_fp4 \
-  --enable-pcie-oneshot-allreduce --enable-pcie-oneshot-allreduce-fusion \
+  --enable-pcie-oneshot-allreduce \
   --mem-fraction-static 0.85 \
   --cuda-graph-max-bs 32 \
   --host 0.0.0.0 --port 5000 \
