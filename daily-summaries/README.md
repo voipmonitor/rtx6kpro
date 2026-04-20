@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-20](2026-04/2026-04-20.md) | GLM-5.1 vLLM OOM bug fixed — new Docker `voipmonitor/vllm:glm51-tp8-nodcp-mtp3-tritondraft-b12x095 |
 | [2026-04-19](2026-04/2026-04-19.md) | PCIe P2P allreduce config for ~10% throughput gain: Force-enable P2P via modprobe `options nvidia NV |
 | [2026-04-18](2026-04/2026-04-18.md) | EXL3 benchmark breakthrough: mratsim's Qwen3.5-397B-A17B EXL3 quant achieves **1500 pp/s and 50+ tg/ |
 | [2026-04-17](2026-04/2026-04-17.md) | Qwen3.6-35B-A3B released (MoE); community upset the poll-winner 27B wasn't chosen first — speculat |
@@ -65,6 +66,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-20](2026-04/2026-04-20.md) | GLM-5.1 vLLM OOM bug fixed — new Docker `voipmonitor/vllm:glm51-tp8-nodcp-mtp3-tritondraft-b12x095 |
 | [2026-04-19](2026-04/2026-04-19.md) | PCIe P2P allreduce config for ~10% throughput gain: Force-enable P2P via modprobe `options nvidia NV |
 | [2026-04-18](2026-04/2026-04-18.md) | EXL3 benchmark breakthrough: mratsim's Qwen3.5-397B-A17B EXL3 quant achieves **1500 pp/s and 50+ tg/ |
 | [2026-04-17](2026-04/2026-04-17.md) | Qwen3.6-35B-A3B released (MoE); community upset the poll-winner 27B wasn't chosen first — speculat |
