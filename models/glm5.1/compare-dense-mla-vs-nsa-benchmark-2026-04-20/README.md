@@ -25,14 +25,15 @@ This benchmark was created to test whether that theoretical claim shows up in a 
 
 The **headline numbers below exclude pathological breakdown runs**. Those runs are preserved in `results/`, but they are not used for the top-line comparison because they are better understood as implementation/pathology failures than as normal model-quality failures.
 
-```text
-+-----------+-----------------------+-----------+---------+-------+-------------------------------+--------------------------------------+
-| Variant   | Excluded runs         | Completed | Correct | Wrong | Completion tokens min/med/avg/max    | Elapsed s min/med/avg/max            |
-+-----------+-----------------------+-----------+---------+-------+-------------------------------+--------------------------------------+
-| dense_mla | 8                     | 29        | 22      | 7     | 3219 / 8631.0 / 8560.000 / 16875     | 36.813 / 100.648 / 103.488 / 189.575 |
-| nsa       | 21, 29                | 28        | 25      | 3     | 1784 / 4965.5 / 5618.464 / 27297     | 25.270 / 76.562 / 97.013 / 615.137   |
-+-----------+-----------------------+-----------+---------+-------+-------------------------------+--------------------------------------+
-```
+| Variant | Excluded runs | Completed | Correct | Wrong |
+|---|---|---:|---:|---:|
+| `dense_mla` | `8` | 29 | 22 | 7 |
+| `nsa` | `21, 29` | 28 | 25 | 3 |
+
+| Variant | Tok min | Tok med | Tok avg | Tok max | Elapsed min | Elapsed med | Elapsed avg | Elapsed max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `dense_mla` | 3219 | 8631.0 | 8560.000 | 16875 | 36.813 | 100.648 | 103.488 | 189.575 |
+| `nsa` | 1784 | 4965.5 | 5618.464 | 27297 | 25.270 | 76.562 | 97.013 | 615.137 |
 
 Interpretation:
 
