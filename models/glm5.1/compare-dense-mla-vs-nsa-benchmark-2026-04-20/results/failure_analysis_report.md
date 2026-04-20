@@ -45,7 +45,38 @@ export SAFETENSORS_FAST_GPU=1
 python3 -m sglang.launch_server   --model-path lukealonso/GLM-5.1-NVFP4   --served-model-name GLM-5   --reasoning-parser glm45   --tool-call-parser glm47   --tensor-parallel-size 8   --quantization modelopt_fp4   --kv-cache-dtype fp8_e4m3   --trust-remote-code   --disable-shared-experts-fusion   --nsa-prefill-backend b12x   --nsa-decode-backend b12x   --page-size 64   --attention-backend nsa   --moe-runner-backend b12x   --fp4-gemm-backend b12x   --cuda-graph-max-bs 4   --enable-pcie-oneshot-allreduce   --speculative-algorithm EAGLE   --speculative-num-steps 3   --speculative-num-draft-tokens 4   --speculative-eagle-topk 1   --chunked-prefill-size 8192   --max-running-requests 4   --mem-fraction-static 0.76   --host 0.0.0.0   --port 8001   --model-loader-extra-config '{"enable_multithread_load": true, "num_threads": 16}'   --json-model-override-args '{"index_topk_pattern": "FFSFSSSFSSFFFSSSFFFSFSSSSSSFFSFFSFFSSFFFFFFSFFFFFSFFSSSSSSFSFFFSFSSSFSFFSFFSSS"}'   --preferred-sampling-params '{"temperature": 1.0, "top_p": 0.95}'   --enable-metrics
 ```
 
-## Full Benchmark Results
+## Recommended Headline Statistics
+
+The main comparison below excludes the pathological breakdown runs:
+
+- `dense_mla`: exclude run `8`
+- `nsa`: exclude runs `21` and `29`
+
+### dense_mla (run 8 excluded)
+- completed: 29
+- correct: 22
+- wrong: 7
+- correct rate: 75.86%
+- completion tokens min / median / mean / max: 3219 / 8631 / 8560.000 / 16875
+- elapsed seconds min / median / mean / max: 36.813 / 100.648 / 103.488 / 189.575
+- generation tok/s min / median / mean / max: 80.198 / 86.621 / 85.731 / 90.039
+- mean TTFT: 3.577 s
+- mean end-to-end tok/s: 83.173
+
+### nsa (runs 21 and 29 excluded)
+- completed: 28
+- correct: 25
+- wrong: 3
+- correct rate: 89.29%
+- completion tokens min / median / mean / max: 1784 / 4965.5 / 5618.464 / 27297
+- elapsed seconds min / median / mean / max: 25.270 / 76.562 / 97.013 / 615.137
+- generation tok/s min / median / mean / max: 44.408 / 68.029 / 67.085 / 71.871
+- mean TTFT: 6.365 s
+- mean end-to-end tok/s: 63.533
+
+## Raw All-Run Statistics
+
+These numbers are preserved for completeness, but they include the pathological breakdown runs and should be treated as stability/tail-risk evidence rather than the main quality comparison.
 
 ### dense_mla
 - completed: 30

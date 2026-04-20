@@ -23,22 +23,22 @@ This benchmark was created to test whether that theoretical claim shows up in a 
 
 ## Main result
 
-On this benchmark, **NSA was more accurate than dense MLA**, but **NSA also had worse tail-risk** because it produced two severe long-form degeneration failures.
+The **headline numbers below exclude pathological breakdown runs**. Those runs are preserved in `results/`, but they are not used for the top-line comparison because they are better understood as implementation/pathology failures than as normal model-quality failures.
 
 ```text
-+-----------+-----------+---------+-------+-------------------------------+--------------------------------------+-------------------------------------------+
-| Variant   | Completed | Correct | Wrong | Correct rate                  | Completion tokens min/med/avg/max    | Elapsed s min/med/avg/max                 |
-+-----------+-----------+---------+-------+-------------------------------+--------------------------------------+-------------------------------------------+
-| dense_mla | 30        | 22      | 8     | 73.33%                        | 3219 / 8681.0 / 8852.767 / 17343     | 36.813 / 101.255 / 106.872 / 204.995      |
-| nsa       | 30        | 25      | 5     | 83.33%                        | 1784 / 5051.5 / 7910.567 / 40000     | 25.270 / 77.088 / 164.002 / 1438.703      |
-+-----------+-----------+---------+-------+-------------------------------+--------------------------------------+-------------------------------------------+
++-----------+-----------------------+-----------+---------+-------+-------------------------------+--------------------------------------+
+| Variant   | Excluded runs         | Completed | Correct | Wrong | Completion tokens min/med/avg/max    | Elapsed s min/med/avg/max            |
++-----------+-----------------------+-----------+---------+-------+-------------------------------+--------------------------------------+
+| dense_mla | 8                     | 29        | 22      | 7     | 3219 / 8631.0 / 8560.000 / 16875     | 36.813 / 100.648 / 103.488 / 189.575 |
+| nsa       | 21, 29                | 28        | 25      | 3     | 1784 / 4965.5 / 5618.464 / 27297     | 25.270 / 76.562 / 97.013 / 615.137   |
++-----------+-----------------------+-----------+---------+-------+-------------------------------+--------------------------------------+
 ```
 
 Interpretation:
 
 - `dense_mla` was faster on generation throughput, but it more often ended in a coherent **wrong answer** (`Latvia`).
 - `nsa` reached the correct final answer more often, which supports Luke's concern that dense MLA changes the computation in a harmful way for a co-trained NSA model.
-- However, `nsa` also produced two catastrophic long-form repetition failures that hit the 40k token limit, so the current NSA path had meaningfully worse outliers.
+- The excluded NSA runs (`21`, `29`) are documented separately as repetition/degeneration bugs and should be read as tail-pathology evidence, not as normal quality data points.
 
 ## High-level findings
 
@@ -177,6 +177,19 @@ Dense MLA therefore mostly failed by producing a fluent but wrong answer rather 
 
 NSA therefore had a better raw success rate, but a worse tail failure mode.
 
+## Raw all-run statistics
+
+These numbers are retained for completeness, but they are **not** the recommended comparison because they include the pathological breakdown runs.
+
+```text
++-----------+-----------+---------+-------+-------------------------------+--------------------------------------+-------------------------------------------+
+| Variant   | Completed | Correct | Wrong | Correct rate                  | Completion tokens min/med/avg/max    | Elapsed s min/med/avg/max                 |
++-----------+-----------+---------+-------+-------------------------------+--------------------------------------+-------------------------------------------+
+| dense_mla | 30        | 22      | 8     | 73.33%                        | 3219 / 8681.0 / 8852.767 / 17343     | 36.813 / 101.255 / 106.872 / 204.995      |
+| nsa       | 30        | 25      | 5     | 83.33%                        | 1784 / 5051.5 / 7910.567 / 40000     | 25.270 / 77.088 / 164.002 / 1438.703      |
++-----------+-----------+---------+-------+-------------------------------+--------------------------------------+-------------------------------------------+
+```
+
 ## Filtered views
 
 ### NSA with only the single worst outlier removed (`run 21`)
@@ -201,9 +214,10 @@ NSA therefore had a better raw success rate, but a worse tail failure mode.
 
 1. Start with this `README.md`.
 2. Read `results/failure_analysis_report.md` for the detailed breakdown.
-3. Open `results/wrong_run_classification.json` for per-run labels.
-4. Inspect `results/full_outputs/nsa_run_21_full_output.txt` and `results/full_outputs/nsa_run_29_full_output.txt` to see the two pathological NSA failures.
-5. Compare that against `results/full_outputs/dense_mla_run_8_full_output.txt` to see the single dense breakdown.
+3. Read `results/outlier_report_for_luke.md` for the dedicated explanation of the excluded outlier runs.
+4. Open `results/wrong_run_classification.json` for per-run labels.
+5. Inspect `results/full_outputs/nsa_run_21_full_output.txt` and `results/full_outputs/nsa_run_29_full_output.txt` to see the two pathological NSA failures.
+6. Compare that against `results/full_outputs/dense_mla_run_8_full_output.txt` to see the single dense breakdown.
 
 ## Bottom line
 
