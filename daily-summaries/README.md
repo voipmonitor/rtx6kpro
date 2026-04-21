@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-21](2026-04/2026-04-21.md) | Kimi K2.6 released (1.1T params, same arch as K2.5, vision included): SWE-Bench Pro 58.6%, HLE beati |
 | [2026-04-20](2026-04/2026-04-20.md) | GLM-5.1 vLLM OOM bug fixed — new Docker `voipmonitor/vllm:glm51-tp8-nodcp-mtp3-tritondraft-b12x095 |
 | [2026-04-19](2026-04/2026-04-19.md) | PCIe P2P allreduce config for ~10% throughput gain: Force-enable P2P via modprobe `options nvidia NV |
 | [2026-04-18](2026-04/2026-04-18.md) | EXL3 benchmark breakthrough: mratsim's Qwen3.5-397B-A17B EXL3 quant achieves **1500 pp/s and 50+ tg/ |
@@ -66,6 +67,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-21](2026-04/2026-04-21.md) | Kimi K2.6 released (1.1T params, same arch as K2.5, vision included): SWE-Bench Pro 58.6%, HLE beati |
 | [2026-04-20](2026-04/2026-04-20.md) | GLM-5.1 vLLM OOM bug fixed — new Docker `voipmonitor/vllm:glm51-tp8-nodcp-mtp3-tritondraft-b12x095 |
 | [2026-04-19](2026-04/2026-04-19.md) | PCIe P2P allreduce config for ~10% throughput gain: Force-enable P2P via modprobe `options nvidia NV |
 | [2026-04-18](2026-04/2026-04-18.md) | EXL3 benchmark breakthrough: mratsim's Qwen3.5-397B-A17B EXL3 quant achieves **1500 pp/s and 50+ tg/ |
