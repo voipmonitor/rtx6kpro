@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-22](2026-04/2026-04-22.md) | Kimi K2.6 hits 120–130 tok/s on 8×RTX 6000 Pro with DCP8 + Eagle3 speculative decoding + 3.6M fp8 |
 | [2026-04-21](2026-04/2026-04-21.md) | Kimi K2.6 released (1.1T params, same arch as K2.5, vision included): SWE-Bench Pro 58.6%, HLE beati |
 | [2026-04-20](2026-04/2026-04-20.md) | GLM-5.1 vLLM OOM bug fixed — new Docker `voipmonitor/vllm:glm51-tp8-nodcp-mtp3-tritondraft-b12x095 |
 | [2026-04-19](2026-04/2026-04-19.md) | PCIe P2P allreduce config for ~10% throughput gain: Force-enable P2P via modprobe `options nvidia NV |
@@ -67,6 +68,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-22](2026-04/2026-04-22.md) | Kimi K2.6 hits 120–130 tok/s on 8×RTX 6000 Pro with DCP8 + Eagle3 speculative decoding + 3.6M fp8 |
 | [2026-04-21](2026-04/2026-04-21.md) | Kimi K2.6 released (1.1T params, same arch as K2.5, vision included): SWE-Bench Pro 58.6%, HLE beati |
 | [2026-04-20](2026-04/2026-04-20.md) | GLM-5.1 vLLM OOM bug fixed — new Docker `voipmonitor/vllm:glm51-tp8-nodcp-mtp3-tritondraft-b12x095 |
 | [2026-04-19](2026-04/2026-04-19.md) | PCIe P2P allreduce config for ~10% throughput gain: Force-enable P2P via modprobe `options nvidia NV |
