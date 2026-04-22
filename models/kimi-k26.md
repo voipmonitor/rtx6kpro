@@ -125,24 +125,84 @@ VLLM_MARLIN_INPUT_DTYPE=fp8 \
 '
 ```
 
-## DCP=4 vs DCP=8
+## Expected `llm_decode_bench.py` Results
 
-From `python3 /mnt/llm_decode_bench.py --port 5000` on the same serving stack:
+Command:
 
-| Scenario | DCP=4 | DCP=8 |
-|---|---:|---:|
-| Decode, ctx=0, concurrency=1 | 85.5 tok/s | 78.6 tok/s |
-| Decode, ctx=16k, concurrency=1 | 52.7 tok/s | 47.7 tok/s |
-| Decode, ctx=32k, concurrency=128 | 889.8 tok/s | 763.5 tok/s |
-| Decode, ctx=64k, concurrency=64 | 508.4 tok/s | 445.2 tok/s |
+```bash
+python3 /mnt/llm_decode_bench.py --port 5000
+```
+
+### DCP=4 decode expectations (tok/s)
+
+| ctx \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 85.5 | 116.2 | 174.0 | 281.3 | 427.5 | 639.3 | 929.6 | 1224.5 |
+| 16k | 52.7 | 97.3 | 174.8 | 262.2 | 365.5 | 572.8 | 826.7 | 1144.5 |
+| 32k | 52.7 | 97.2 | 159.0 | 246.3 | 317.9 | 477.4 | 698.8 | 889.8 |
+| 64k | 52.7 | 89.5 | 151.1 | 206.7 | 270.1 | 381.6 | 508.4 | 509.1 |
+| 128k | 51.6 | 83.4 | 123.2 | 166.9 | 204.9 | 254.3 | 317.7 | 381.1 |
+
+Prefill expectations:
+- 8k: `7885 tok/s`, TTFT `0.713s`
+- 16k: `7998 tok/s`, TTFT `1.350s`
+- 32k: `7693 tok/s`, TTFT `2.746s`
+- 64k: `6999 tok/s`, TTFT `5.969s`
+- 128k: `6108 tok/s`, TTFT `13.602s`
+
+### DCP=8 decode expectations (tok/s)
+
+| ctx \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 78.6 | 111.4 | 172.0 | 268.1 | 435.8 | 608.1 | 924.6 | 1024.8 |
+| 16k | 47.7 | 87.4 | 151.1 | 238.1 | 318.1 | 508.4 | 763.5 | 1018.1 |
+| 32k | 49.7 | 89.4 | 151.2 | 230.7 | 302.2 | 445.2 | 635.7 | 763.5 |
+| 64k | 49.7 | 85.4 | 143.0 | 198.8 | 254.5 | 349.7 | 445.2 | 508.6 |
+| 128k | 47.7 | 79.5 | 119.3 | 159.1 | 190.9 | 254.3 | 318.0 | 381.1 |
+
+Prefill expectations:
+- 8k: `7907 tok/s`, TTFT `0.712s`
+- 16k: `8015 tok/s`, TTFT `1.347s`
+- 32k: `7695 tok/s`, TTFT `2.746s`
+- 64k: `6991 tok/s`, TTFT `5.977s`
+- 128k: `6096 tok/s`, TTFT `13.630s`
 
 At the moment `DCP=4` is the recommended community setting and `DCP=8` is the reference comparison point.
 
-## NCCL XML Note
+## NCCL XML vs no-XML Validation
 
 `NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml` is still recommended for the fastest known configuration.
 
-Patched NCCL without XML was functional, but prefill was still slower than the XML-based path, especially at low concurrency. The XML path remains the best known public recipe for now.
+Patched NCCL without XML was functional, but prefill was still slower than the XML-based path. The cleanest validation was a prefill-only test on the same Kimi MLA stack with `DCP=8`, `TRITON_MLA`, `fp8 KV`, `max_tokens=1`, and no prefix cache.
+
+### Prefill-only A/B
+
+| Mode | Concurrency | Avg TTFT | Aggregate Prompt tok/s |
+|---|---:|---:|---:|
+| XML | 1 | 0.310s | 20.7k tok/s |
+| no-XML | 1 | 1.329s | 6.75k tok/s |
+| XML | 16 | 0.903s | 115.3k tok/s |
+| no-XML | 16 | 0.999s | 108.1k tok/s |
+
+So:
+- no-XML was about `3.07x` slower on the single-request prefill test
+- no-XML was still about `6.7%` slower at concurrency 16
+
+### What NCCL Debug Showed
+
+The transport was the same in both cases (`P2P/CUMEM`). The difference was the graph/search result:
+
+With XML:
+- `Pattern 4 ... bw 38/32, type PHB/PIX`
+- `Pattern 1 ... bw 38/32, type PHB/PIX`
+- 4 total channels
+
+Without XML:
+- `Pattern 4 ... bw 15/15, type SYS/PIX`
+- `Pattern 1 ... bw 0.1/0.1, type SYS/SYS`
+- 2 total channels
+
+That is why the XML path is still the best known public recipe for Kimi MLA.
 
 ## Minimal Discord Summary
 
@@ -150,4 +210,8 @@ Patched NCCL without XML was functional, but prefill was still slower than the X
 >
 > The public demo path uses `moonshotai/Kimi-K2.5` + `lightseekorg/kimi-k2.5-eagle3-mla` because that is the most representative MLA setup for Kimi on vLLM: same `TRITON_MLA + fp8 KV + DCP` serving path, and better behavior than the non-MLA Llama draft.
 >
-> Current recommendation: `DCP=4` with `NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml`. `DCP=8` remains the reference alternative.
+> Expected `llm_decode_bench.py --port 5000` results:
+> - DCP=4: `85.5 tok/s` at `ctx=0, C=1`, `52.7 tok/s` at `ctx=16k, C=1`, `1224.5 tok/s` at `ctx=0, C=128`
+> - DCP=8: `78.6 tok/s` at `ctx=0, C=1`, `47.7 tok/s` at `ctx=16k, C=1`, `1024.8 tok/s` at `ctx=0, C=128`
+>
+> Current recommendation: `DCP=4` with `NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml`. `DCP=8` remains the reference alternative. Patched NCCL without XML is functional, but still slower on prefill.
