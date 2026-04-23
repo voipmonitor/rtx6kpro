@@ -1,0 +1,23 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 77071514f..7e454d0ed 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2184,16 +2184,8 @@ class GPUModelRunner(
+         is_prefilling = num_computed_tokens_cpu < num_prompt_tokens_cpu
+ 
+         if self.use_async_spec_decode:
+-            # GPU tensors are authoritative in async mode. Keep the optimistic
+-            # seq_lens_cpu available though — MLA's metadata builder uses it
+-            # to compute context_lens for chunked-prefill workspace sizing,
+-            # which only needs an upper bound on context length and can
+-            # tolerate the optimistic value. This avoids a catastrophic
+-            # GPU->CPU sync in the prefill branch when eagle3/MTP verification
+-            # batches arrive with max_query_len>1 (otherwise
+-            # mla_attention.build() calls compute_num_computed_tokens().cpu()
+-            # which stalls on in-flight target-model work, adding ~40-80 ms
+-            # per decode step at 30k ctx).
++            # GPU tensors are authoritative in async mode.
++            seq_lens_cpu = None
+             num_computed_tokens_cpu = None
+ 
+         cm_base = CommonAttentionMetadata(

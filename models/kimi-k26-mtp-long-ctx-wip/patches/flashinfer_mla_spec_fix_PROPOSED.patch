@@ -1,0 +1,63 @@
+--- PROPOSED FIX — ATTEMPTED AND ROLLED BACK ---
+See RESULTS.md §5 for background.
+
+## Attempt 1 (this patch)
+
+Removed `self._is_fp8_kv_cache` from the flatten condition in
+`vllm/v1/attention/backends/mla/flashinfer_mla.py _build_decode` so that
+FP8 + spec-verify (tpr>1) stays a single request and trtllm-gen handles
+the causal mask internally.
+
+```python
+# BEFORE (triggers flatten → XQA → 0% acceptance):
+if num_decode_tokens > num_reqs and (
+    self._is_fp8_kv_cache
+    or (
+        self.dcp_world_size > 1
+        and dcp_tot_seq_lens_device is not None
+    )
+):
+
+# AFTER (no flatten for FP8 spec; trtllm-gen takes tpr>1 natively):
+if num_decode_tokens > num_reqs and (
+    self.dcp_world_size > 1
+    and dcp_tot_seq_lens_device is not None
+):
+```
+
+## Result: breaks startup on sm120 fp8
+
+Server crashes with:
+```
+ValueError: Supported block_size are 32 and 64, got 16
+  …/flashinfer/…/trtllm_batch_decode_with_kv_cache_mla
+```
+
+i.e. trtllm-gen's FP8 MLA decode kernel on sm120 requires KV block_size ∈
+{32, 64}; the default `--block-size` that vLLM selects for TRITON_MLA fp8 is
+16 and FlashInfer-MLA's supported_kernel_block_sizes accepts MultipleOf(16),
+so it does not get bumped at config-selection time. The XQA path (used by
+the flatten branch) *does* work at block_size=16, which is why the buggy
+flatten-based path even exists.
+
+## Next steps to pursue
+
+Either:
+
+(a) **Bump block_size to 64 when FLASHINFER_MLA is selected.** Look at the
+    backend's `get_supported_kernel_block_sizes()` (line ~475) and see why
+    the selector happily gives it a block_size of 16. Likely needs to be
+    `[32, 64]` or `MultipleOf(32)` so the kv_cache allocator picks 32/64.
+    Then the FP8 trtllm-gen path works with real per-request seq_lens.
+
+(b) **Fix XQA's handling of flattened spec-verify tokens.** This is the
+    current (broken) path. It treats each flattened token as an independent
+    request; causal masking within the span is not applied. Would need a
+    patch inside the flashinfer kernel (beyond our scope here), or to
+    explicitly refuse the XQA path when tpr>1 (fall through to trtllm-gen
+    only, combined with (a)).
+
+Recommendation: try (a) first by forcing `--block-size 64` at the vllm
+serve command line when using FLASHINFER_MLA + MTP. If that runs, verify
+draft acceptance > 0 at 30k ctx and measure tok/s. The expected result is
+flat ~19 ms interarrival and ~120+ tok/s with correct acceptance.

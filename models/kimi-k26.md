@@ -263,3 +263,9 @@ Practical interpretation:
 > - DCP=8: `78.6 tok/s` at `ctx=0, C=1`, `47.7 tok/s` at `ctx=16k, C=1`, `1024.8 tok/s` at `ctx=0, C=128`
 >
 > Current recommendation: `DCP=4` with `NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml`. `DCP=8` remains the reference alternative. Patched NCCL without XML is functional, but still slower on prefill.
+
+## MTP long-context investigation (WIP, 2026-04-23)
+
+Exploratory debugging session on why MTP collapses at 30k+ context:
+- full write-up, benchmarks, patches, and docker image tags: **[kimi-k26-mtp-long-ctx-wip/](kimi-k26-mtp-long-ctx-wip/README.md)**
+- TL;DR: root cause is target-forward GPU time at `num_tokens=4` (≈85 ms at 30k ctx with `TRITON_MLA`); the draft/metadata side was ruled out. `FLASHINFER_MLA` would cut target forward to ~19 ms and flatten interarrival across ctx but on SM120 FP8 it silently gives 0 % draft acceptance (XQA can't causally-mask within the 4-query verification span, trtllm-gen not compiled for SM120).

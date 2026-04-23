@@ -1,0 +1,480 @@
+diff --git a/vllm/model_executor/layers/attention/mla_attention.py b/vllm/model_executor/layers/attention/mla_attention.py
+index 4b397fe2d..b155b10c2 100644
+--- a/vllm/model_executor/layers/attention/mla_attention.py
++++ b/vllm/model_executor/layers/attention/mla_attention.py
+@@ -1714,6 +1714,19 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+         common_attn_metadata: CommonAttentionMetadata,
+         fast_build: bool = False,
+     ) -> M:
++        try:
++            from vllm.v1.spec_decode._mtp_timing import (
++                enter as _t_enter2,
++                exit as _t_exit2,
++            )
++        except Exception:
++            def _t_enter2(_):
++                pass
++            def _t_exit2(_):
++                pass
++
++        _t_enter2("P_build_total")
++        _t_enter2("P_before_split")
+         num_reqs = common_attn_metadata.num_reqs
+         num_tokens = common_attn_metadata.num_actual_tokens
+         max_query_len = common_attn_metadata.max_query_len
+@@ -1730,7 +1743,9 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+         query_start_loc_cpu = common_attn_metadata.query_start_loc_cpu
+         seq_lens = common_attn_metadata.seq_lens
+         dcp_local_seq_lens = common_attn_metadata.dcp_local_seq_lens
++        _t_exit2("P_before_split")
+ 
++        _t_enter2("P_split_decodes_and_prefills")
+         num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
+             split_decodes_and_prefills(
+                 common_attn_metadata,
+@@ -1738,30 +1753,66 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+                 require_uniform=(self.query_len_support != QueryLenSupport.VARLEN),
+             )
+         )
++        _t_exit2("P_split_decodes_and_prefills")
+ 
+         assert num_decodes + num_prefills == num_reqs
+         assert num_decode_tokens + num_prefill_tokens == num_tokens
+ 
+         prefill_metadata = None
+         if num_prefills > 0:
+-            num_computed_tokens_cpu = (
+-                common_attn_metadata.compute_num_computed_tokens().cpu()
+-            )
++            _t_enter2("P00_prefill_branch_total")
++            _t_enter2("P00a_num_computed_tokens_cpu_path")
++            # Avoid GPU->CPU sync: derive num_computed_tokens on CPU from the
++            # CPU-side shadows of query_start_loc and seq_lens. The previous
++            # implementation called compute_num_computed_tokens().cpu() which
++            # forces a full GPU sync — catastrophic for MTP/eagle3 first-pass
++            # draft metadata builds, which flow through this branch with a
++            # small 4-query "prefill-like" batch and stall on in-flight
++            # target-model work (~60-80 ms per decode step at 30k ctx).
++            if common_attn_metadata._num_computed_tokens_cpu is not None:
++                _t_enter2("P00a_fast_path_field")
++                num_computed_tokens_cpu = (
++                    common_attn_metadata._num_computed_tokens_cpu
++                )
++                _t_exit2("P00a_fast_path_field")
++            elif common_attn_metadata._seq_lens_cpu is not None:
++                _t_enter2("P00a_seq_lens_cpu_path")
++                _query_seq_lens_cpu = (
++                    common_attn_metadata.query_start_loc_cpu[1:]
++                    - common_attn_metadata.query_start_loc_cpu[:-1]
++                )
++                num_computed_tokens_cpu = (
++                    common_attn_metadata._seq_lens_cpu - _query_seq_lens_cpu
++                )
++                _t_exit2("P00a_seq_lens_cpu_path")
++            else:
++                # fallback: keep old sync-inducing behaviour
++                _t_enter2("P00a_fallback_cpu_sync")
++                num_computed_tokens_cpu = (
++                    common_attn_metadata.compute_num_computed_tokens().cpu()
++                )
++                _t_exit2("P00a_fallback_cpu_sync")
++            _t_exit2("P00a_num_computed_tokens_cpu_path")
+ 
+             reqs_start = num_decodes  # prefill_start
+ 
++            _t_enter2("P01_context_lens_derive")
+             context_lens_cpu = num_computed_tokens_cpu[reqs_start:num_reqs]
+             max_context_len_cpu = context_lens_cpu.max().item()
+             num_prefills_with_context_cpu = (context_lens_cpu > 0).sum().item()
++            _t_exit2("P01_context_lens_derive")
++            _t_enter2("P02_query_start_loc_device")
+             prefill_query_start_loc = (
+                 query_start_loc[reqs_start:] - query_start_loc[reqs_start]
+             )
++            _t_exit2("P02_query_start_loc_device")
+             prefill_query_start_loc_cpu = (
+                 query_start_loc_cpu[reqs_start:] - query_start_loc_cpu[reqs_start]
+             )
+ 
+             chunked_context_metadata = None
+             if max_context_len_cpu > 0:
++                _t_enter2("P03_chunked_context_setup")
+                 # NOTE: it is recommend you read the `Chunked Prefill` section
+                 # in the comment at the top of the file before trying to
+                 # understand the following code
+@@ -1952,7 +2003,9 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+                     max(chunked_context_metadata.max_seq_lens)
+                     <= self.chunked_prefill_workspace_size
+                 )
++                _t_exit2("P03_chunked_context_setup")
+ 
++            _t_enter2("P04_prefill_metadata_cls")
+             prefill_metadata = self.prefill_metadata_cls(
+                 block_table=block_table_tensor[reqs_start:, ...],
+                 query_start_loc=prefill_query_start_loc,
+@@ -1974,7 +2027,10 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+                     prefill_query_start_loc[1:] - prefill_query_start_loc[:-1]
+                 )
+                 prefill_metadata.workspace_buffer = self._workspace_buffer
++            _t_exit2("P04_prefill_metadata_cls")
++            _t_exit2("P00_prefill_branch_total")
+ 
++        _t_enter2("P_decode_branch")
+         decode_metadata = None
+         if num_decodes > 0:
+             dcp_tot_seq_lens_device = None
+@@ -2001,7 +2057,9 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+                 num_decode_tokens=num_decode_tokens,
+                 dcp_tot_seq_lens_device=dcp_tot_seq_lens_device,
+             )
++        _t_exit2("P_decode_branch")
+ 
++        _t_enter2("P_metadata_cls")
+         attn_metadata = self.metadata_cls(
+             num_reqs=common_attn_metadata.num_reqs,
+             max_query_len=common_attn_metadata.max_query_len,
+@@ -2017,11 +2075,15 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[M]):
+             prefill=prefill_metadata,
+             decode=decode_metadata,
+         )
++        _t_exit2("P_metadata_cls")
+ 
+         if self._use_fi_prefill and num_prefills > 0:
++            _t_enter2("P_fi_prefill_wrappers")
+             assert isinstance(attn_metadata.prefill, FlashInferPrefillMetadata)
+             self._build_fi_prefill_wrappers(attn_metadata.prefill)
++            _t_exit2("P_fi_prefill_wrappers")
+ 
++        _t_exit2("P_build_total")
+         return attn_metadata
+ 
+ 
+diff --git a/vllm/v1/spec_decode/eagle.py b/vllm/v1/spec_decode/eagle.py
+index f22e15b79..64d482b37 100644
+--- a/vllm/v1/spec_decode/eagle.py
++++ b/vllm/v1/spec_decode/eagle.py
+@@ -422,6 +422,13 @@ class SpecDecodeBaseProposer:
+     ) -> torch.Tensor:
+         batch_size = common_attn_metadata.batch_size()
+ 
++        from vllm.v1.spec_decode._mtp_timing import (
++            enter as _t_enter,
++            exit as _t_exit,
++            tick as _t_tick,
++        )
++        _t_enter("00_propose_total")
++
+         if self.method in ("eagle3", "dflash"):
+             assert isinstance(
+                 self.model,
+@@ -431,11 +438,14 @@ class SpecDecodeBaseProposer:
+                     DFlashQwen3ForCausalLM,
+                 ),
+             )
++            _t_enter("01_combine_hidden_states")
+             target_hidden_states = self.model.combine_hidden_states(
+                 target_hidden_states
+             )
++            _t_exit("01_combine_hidden_states")
+             assert target_hidden_states.shape[-1] == self.hidden_size
+ 
++        _t_enter("02_set_inputs_first_pass")
+         num_tokens, token_indices_to_sample, common_attn_metadata = (
+             self.set_inputs_first_pass(
+                 target_token_ids=target_token_ids,
+@@ -447,19 +457,27 @@ class SpecDecodeBaseProposer:
+                 num_rejected_tokens_gpu=num_rejected_tokens_gpu,
+             )
+         )
++        _t_exit("02_set_inputs_first_pass")
+ 
++        _t_enter("03_build_attn_metadata_first")
+         per_group_attn_metadata, per_layer_attn_metadata = (
+             self.build_per_group_and_layer_attn_metadata(common_attn_metadata)
+         )
++        _t_exit("03_build_attn_metadata_first")
+ 
++        _t_enter("04_determine_batch_first")
+         cudagraph_runtime_mode, num_input_tokens, num_tokens_across_dp = (
+             self._determine_batch_execution_and_padding(num_tokens)
+         )
++        _t_exit("04_determine_batch_first")
+ 
++        _t_enter("05_build_model_inputs_first")
+         model_kwargs, slot_mapping_size = self.build_model_inputs_first_pass(
+             num_tokens, num_input_tokens, mm_embed_inputs
+         )
++        _t_exit("05_build_model_inputs_first")
+ 
++        _t_enter("06_first_forward")
+         with set_forward_context(
+             per_layer_attn_metadata,
+             self.vllm_config,
+@@ -476,12 +494,15 @@ class SpecDecodeBaseProposer:
+                 hidden_states = last_hidden_states
+             else:
+                 last_hidden_states, hidden_states = ret_hidden_states
++        _t_exit("06_first_forward")
+ 
+         sample_hidden_states = last_hidden_states[token_indices_to_sample]
+ 
+         # Early exit if there is only one draft token to be generated.
+         if self.num_speculative_tokens == 1 or self.parallel_drafting:
+             draft_token_ids = self._greedy_sample(sample_hidden_states)
++            _t_exit("00_propose_total")
++            _t_tick(int(common_attn_metadata.max_seq_len))
+             return draft_token_ids.view(-1, self.num_speculative_tokens)
+ 
+         if self.uses_mrope:
+@@ -502,6 +523,8 @@ class SpecDecodeBaseProposer:
+                 slot_mappings=slot_mappings,
+             )
+             # [batch_size, num_tree_tokens]
++            _t_exit("00_propose_total")
++            _t_tick(int(common_attn_metadata.max_seq_len))
+             return torch.cat(draft_token_ids_list, dim=1)
+ 
+         draft_token_ids = self._greedy_sample(sample_hidden_states)
+@@ -543,6 +566,7 @@ class SpecDecodeBaseProposer:
+         block_size = self.block_size
+         assert block_size > 0, "block_size has not been initialized."
+         for token_index in range(self.num_speculative_tokens - 1):
++            _t_enter(f"10_step{token_index+1}_total")
+             # Update the inputs.
+             # cast to int32 is crucial when eagle model is compiled.
+             # tensor.argmax() returns int64 by default.
+@@ -557,6 +581,7 @@ class SpecDecodeBaseProposer:
+                 out_pos = self.xdrope_positions[0, :batch_size]
+             else:
+                 out_pos = self.positions[:batch_size]
++            _t_enter(f"11_step{token_index+1}_slot_mapping")
+             eagle_step_update_slot_mapping_and_metadata(
+                 positions_1d=positions_1d,
+                 block_table_tensor=common_attn_metadata.block_table_tensor,
+@@ -567,6 +592,7 @@ class SpecDecodeBaseProposer:
+                 out_slot_mapping=self._slot_mapping_buffer[:input_batch_size],
+                 input_batch_size=input_batch_size,
+             )
++            _t_exit(f"11_step{token_index+1}_slot_mapping")
+             common_attn_metadata.slot_mapping = self._slot_mapping_buffer[:batch_size]
+             if self.uses_mrope:
+                 self.mrope_positions[1:, :batch_size] = self.mrope_positions[
+@@ -595,9 +621,11 @@ class SpecDecodeBaseProposer:
+                 common_attn_metadata._num_computed_tokens_cpu += 1
+ 
+             # Rebuild attention metadata
++            _t_enter(f"12_step{token_index+1}_build_metadata")
+             _, per_layer_attn_metadata = self.build_per_group_and_layer_attn_metadata(
+                 common_attn_metadata, draft_index=token_index + 1
+             )
++            _t_exit(f"12_step{token_index+1}_build_metadata")
+ 
+             # copy inputs to buffer for cudagraph
+             self.input_ids[:batch_size] = input_ids
+@@ -620,6 +648,7 @@ class SpecDecodeBaseProposer:
+             if self.pass_hidden_states_to_model:
+                 model_kwargs["hidden_states"] = self.hidden_states[:input_batch_size]
+ 
++            _t_enter(f"13_step{token_index+1}_forward")
+             with set_forward_context(
+                 per_layer_attn_metadata,
+                 self.vllm_config,
+@@ -634,13 +663,19 @@ class SpecDecodeBaseProposer:
+                     hidden_states = ret_hidden_states
+                 else:
+                     last_hidden_states, hidden_states = ret_hidden_states
++            _t_exit(f"13_step{token_index+1}_forward")
+ 
+             hidden_states = hidden_states[:batch_size]
++            _t_enter(f"14_step{token_index+1}_sample")
+             draft_token_ids = self._greedy_sample(last_hidden_states[:batch_size])
++            _t_exit(f"14_step{token_index+1}_sample")
+             draft_token_ids_list.append(draft_token_ids)
++            _t_exit(f"10_step{token_index+1}_total")
+ 
+         # [batch_size, num_speculative_tokens]
+         draft_token_ids = torch.stack(draft_token_ids_list, dim=1)
++        _t_exit("00_propose_total")
++        _t_tick(int(common_attn_metadata.max_seq_len))
+         return draft_token_ids
+ 
+     def set_inputs_first_pass(
+@@ -1259,15 +1294,48 @@ class SpecDecodeBaseProposer:
+         Subclasses may override to apply additional config changes.
+         """
+         spec_cfg = self.speculative_config
++        config = replace(
++            self.vllm_config,
++            parallel_config=replace(
++                spec_cfg.draft_parallel_config,
++                rank=self.vllm_config.parallel_config.rank,
++            ),
++            model_config=spec_cfg.draft_model_config,
++        )
++
+         if spec_cfg.moe_backend is not None:
+-            return replace(
+-                self.vllm_config,
++            config = replace(
++                config,
+                 kernel_config=replace(
+-                    self.vllm_config.kernel_config,
++                    config.kernel_config,
+                     moe_backend=spec_cfg.moe_backend,
+                 ),
+             )
+-        return self.vllm_config
++
++        if spec_cfg.draft_kv_cache_dtype is not None:
++            config = replace(
++                config,
++                cache_config=replace(
++                    config.cache_config,
++                    cache_dtype=spec_cfg.draft_kv_cache_dtype,
++                ),
++            )
++
++        if spec_cfg.draft_attention_backend is not None:
++            draft_backend = (
++                None
++                if spec_cfg.draft_attention_backend == "auto"
++                else spec_cfg.draft_attention_backend
++            )
++            config = replace(
++                config,
++                attention_config=replace(
++                    config.attention_config,
++                    backend=draft_backend,
++                ),
++            )
++
++        return config
+ 
+     def _get_model(self) -> nn.Module:
+         """
+@@ -1515,9 +1583,13 @@ class SpecDecodeBaseProposer:
+                 )
+             # Warn if draft model has vocab remapping, which forces fallback
+             # to the full-logits path (negating the optimization).
++            has_identity_mapping = getattr(
++                self.model, "_has_identity_draft_vocab_mapping", True
++            )
+             if (
+                 hasattr(self.model, "draft_id_to_target_id")
+                 and self.model.draft_id_to_target_id is not None
++                and not has_identity_mapping
+             ):
+                 logger.warning(
+                     "use_local_argmax_reduction is enabled but draft model "
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index fe5246845..77071514f 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -4,6 +4,7 @@
+ import functools
+ import gc
+ import itertools
++import os
+ import threading
+ import time
+ from collections import defaultdict
+@@ -588,6 +589,19 @@ class GPUModelRunner(
+                 self.effective_drafter_max_model_len = draft_config.max_model_len
+             else:
+                 self.effective_drafter_max_model_len = self.max_model_len
++            draft_disable_above_seq_len = int(
++                os.getenv("VLLM_SPECULATIVE_DISABLE_ABOVE_SEQ_LEN", "0")
++            )
++            if draft_disable_above_seq_len > 0:
++                self.effective_drafter_max_model_len = min(
++                    self.effective_drafter_max_model_len,
++                    draft_disable_above_seq_len,
++                )
++                logger.info(
++                    "Speculative decoding will be disabled for sequence lengths "
++                    "above %d via VLLM_SPECULATIVE_DISABLE_ABOVE_SEQ_LEN.",
++                    self.effective_drafter_max_model_len,
++                )
+         self.use_async_spec_decode = (
+             self.use_async_scheduling and self.num_spec_tokens > 0
+         )
+@@ -862,6 +876,14 @@ class GPUModelRunner(
+             draft_config = self.speculative_config.draft_model_config
+             if draft_config is None or draft_config.max_model_len is None:
+                 self.effective_drafter_max_model_len = self.max_model_len
++            draft_disable_above_seq_len = int(
++                os.getenv("VLLM_SPECULATIVE_DISABLE_ABOVE_SEQ_LEN", "0")
++            )
++            if draft_disable_above_seq_len > 0:
++                self.effective_drafter_max_model_len = min(
++                    self.effective_drafter_max_model_len,
++                    draft_disable_above_seq_len,
++                )
+ 
+     def reset_mm_cache(self) -> None:
+         """
+@@ -2162,8 +2184,16 @@ class GPUModelRunner(
+         is_prefilling = num_computed_tokens_cpu < num_prompt_tokens_cpu
+ 
+         if self.use_async_spec_decode:
+-            # GPU tensors are authoritative in async mode.
+-            seq_lens_cpu = None
++            # GPU tensors are authoritative in async mode. Keep the optimistic
++            # seq_lens_cpu available though — MLA's metadata builder uses it
++            # to compute context_lens for chunked-prefill workspace sizing,
++            # which only needs an upper bound on context length and can
++            # tolerate the optimistic value. This avoids a catastrophic
++            # GPU->CPU sync in the prefill branch when eagle3/MTP verification
++            # batches arrive with max_query_len>1 (otherwise
++            # mla_attention.build() calls compute_num_computed_tokens().cpu()
++            # which stalls on in-flight target-model work, adding ~40-80 ms
++            # per decode step at 30k ctx).
+             num_computed_tokens_cpu = None
+ 
+         cm_base = CommonAttentionMetadata(
+@@ -4032,6 +4062,17 @@ class GPUModelRunner(
+                 defer_finalize=defer_kv_connector_finalize,
+             ) as kv_connector_output,
+         ):
++            try:
++                from vllm.v1.spec_decode._mtp_timing import (
++                    enter as _t_enter_tgt,
++                    exit as _t_exit_tgt,
++                )
++            except Exception:
++                def _t_enter_tgt(_):
++                    pass
++                def _t_exit_tgt(_):
++                    pass
++            _t_enter_tgt("TGT_model_forward")
+             model_output = self._model_forward(
+                 input_ids=input_ids,
+                 positions=positions,
+@@ -4039,6 +4080,7 @@ class GPUModelRunner(
+                 inputs_embeds=inputs_embeds,
+                 **model_kwargs,
+             )
++            _t_exit_tgt("TGT_model_forward")
+ 
+         with record_function_or_nullcontext("gpu_model_runner: postprocess"):
+             if self.use_aux_hidden_state_outputs:
+@@ -4225,6 +4267,19 @@ class GPUModelRunner(
+                 spec_decode_common_attn_metadata.max_seq_len + self.num_spec_tokens
+                 <= self.effective_drafter_max_model_len
+             )
++            # The draft attention metadata can under-report long prompt length for
++            # EAGLE-style decode paths, so also gate on the actual request seq len.
++            if input_fits_in_drafter and self.input_batch.num_reqs > 0:
++                actual_max_seq_len = int(
++                    self.optimistic_seq_lens_cpu[: self.input_batch.num_reqs].max()
++                )
++                # optimistic_seq_lens_cpu already tracks the global request length.
++                # Multiplying by dcp_world_size double-counts context length and
++                # incorrectly disables drafting for DCP runs.
++                if actual_max_seq_len + self.num_spec_tokens > (
++                    self.effective_drafter_max_model_len
++                ):
++                    input_fits_in_drafter = False
+             use_gpu_toks = (
+                 spec_config.use_eagle()
+                 or spec_config.uses_draft_model()
