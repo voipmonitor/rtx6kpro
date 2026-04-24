@@ -11,6 +11,21 @@ vLLM on 8x RTX PRO 6000 Blackwell / sm120. It uses the Kimi MLA path:
 - decode context parallelism: `DCP=1`, `DCP=4`, or `DCP=8`
 - runtime topology: PCIe P2P custom allreduce + NCCL XML graph file
 
+## Contents
+
+- [Quick Start](#quick-start)
+- [Choose A Profile](#choose-a-profile)
+- [Launch: MTP Enabled](#launch-mtp-enabled)
+- [Launch: Maximum KV Cache, No MTP](#launch-maximum-kv-cache-no-mtp)
+- [Speed Vs Context Length](#speed-vs-context-length)
+- [Expected Decode Throughput](#expected-decode-throughput)
+- [Prefill Sanity Checks](#prefill-sanity-checks)
+- [NCCL XML Status](#nccl-xml-status)
+- [Why The MLA Draft](#why-the-mla-draft)
+- [FP8 Tensor Draft Check](#fp8-tensor-draft-check)
+- [Current Upstream Patch Stack](#current-upstream-patch-stack)
+- [Legacy Kimi-K2.5 Community Image](#legacy-kimi-k25-community-image)
+
 ## Quick Start
 
 Use this Docker image:
@@ -171,73 +186,6 @@ high-concurrency throughput from about `1397 tok/s` to `1527 tok/s` in the
 DCP=8 no-MTP diagnostic run. The trade-off is obvious: lower max request length,
 better short-context throughput.
 
-## FP8 Tensor Draft Check
-
-An experimental locally quantized draft was tested against the public
-`lightseekorg/kimi-k2.5-eagle3-mla` draft to decide whether the FP8 tensor draft
-should become the default recipe.
-
-Common server settings:
-
-```text
-target model:              moonshotai/Kimi-K2.6
-TP / DCP:                  8 / 1
-attention backend:         TRITON_MLA for target and draft
-target KV cache dtype:     fp8
-draft KV cache dtype:      fp8
-speculative tokens:        3
-rejection sample method:   probabilistic
-max_num_batched_tokens:    8192
-gpu_memory_utilization:    0.97
-NCCL graph file:           /mnt/nccl_graph_opt.xml
-```
-
-Only the draft model changed:
-
-| Variant | Draft model |
-|---|---|
-| Public draft | `lightseekorg/kimi-k2.5-eagle3-mla` |
-| Local FP8 tensor draft | `/mnt/kimi-k2.5-eagle3-mla-fp8-tensor` |
-
-Benchmark command:
-
-```bash
-python3 /mnt/llm_decode_bench.py \
-  --port 5002 \
-  --model Kimi-K2.6 \
-  --concurrency 1,16,64 \
-  --contexts 0,16k,32k,64k,128k \
-  --duration 20 \
-  --max-tokens 512 \
-  --skip-prefill
-```
-
-Manual KV budgets were set from the vLLM startup log:
-
-| Variant | GPU KV cache size |
-|---|---:|
-| Public draft | 424,576 tokens |
-| Local FP8 tensor draft | 431,328 tokens |
-
-Decode result, aggregate tok/s:
-
-| ctx / conc | Local FP8 tensor draft | Public draft | Delta |
-|---|---:|---:|---:|
-| 0 / 1 | 129.3 | 114.4 | +13.0% |
-| 0 / 16 | 747.5 | 758.5 | -1.4% |
-| 0 / 64 | 1603.3 | 1614.5 | -0.7% |
-| 16k / 1 | 119.1 | 122.2 | -2.6% |
-| 16k / 16 | 524.8 | 523.2 | +0.3% |
-| 32k / 1 | 102.4 | 105.4 | -2.8% |
-| 64k / 1 | 92.4 | 89.5 | +3.2% |
-| 128k / 1 | 70.5 | 72.0 | -2.0% |
-
-Conclusion: the local FP8 tensor draft is not a better default. It only clearly
-wins the `0ctx / C=1` cell, is otherwise within noise or slightly slower, and
-adds only about 1.6% more KV cache. The default community recipe should keep the
-public `lightseekorg/kimi-k2.5-eagle3-mla` draft with `draft_kv_cache_dtype=fp8`.
-The local FP8 tensor draft can remain an experimental option for local testing.
-
 ## Expected Decode Throughput
 
 Final image matrix, `llm_decode_bench.py --skip-prefill`, 10 seconds per cell,
@@ -364,6 +312,73 @@ because it exercises the same MLA runtime path as Kimi:
 
 The non-MLA Llama draft is useful for separate debugging, but it is not the
 representative public Kimi serving path.
+
+## FP8 Tensor Draft Check
+
+An experimental locally quantized draft was tested against the public
+`lightseekorg/kimi-k2.5-eagle3-mla` draft to decide whether the FP8 tensor draft
+should become the default recipe.
+
+Common server settings:
+
+```text
+target model:              moonshotai/Kimi-K2.6
+TP / DCP:                  8 / 1
+attention backend:         TRITON_MLA for target and draft
+target KV cache dtype:     fp8
+draft KV cache dtype:      fp8
+speculative tokens:        3
+rejection sample method:   probabilistic
+max_num_batched_tokens:    8192
+gpu_memory_utilization:    0.97
+NCCL graph file:           /mnt/nccl_graph_opt.xml
+```
+
+Only the draft model changed:
+
+| Variant | Draft model |
+|---|---|
+| Public draft | `lightseekorg/kimi-k2.5-eagle3-mla` |
+| Local FP8 tensor draft | `/mnt/kimi-k2.5-eagle3-mla-fp8-tensor` |
+
+Benchmark command:
+
+```bash
+python3 /mnt/llm_decode_bench.py \
+  --port 5002 \
+  --model Kimi-K2.6 \
+  --concurrency 1,16,64 \
+  --contexts 0,16k,32k,64k,128k \
+  --duration 20 \
+  --max-tokens 512 \
+  --skip-prefill
+```
+
+Manual KV budgets were set from the vLLM startup log:
+
+| Variant | GPU KV cache size |
+|---|---:|
+| Public draft | 424,576 tokens |
+| Local FP8 tensor draft | 431,328 tokens |
+
+Decode result, aggregate tok/s:
+
+| ctx / conc | Local FP8 tensor draft | Public draft | Delta |
+|---|---:|---:|---:|
+| 0 / 1 | 129.3 | 114.4 | +13.0% |
+| 0 / 16 | 747.5 | 758.5 | -1.4% |
+| 0 / 64 | 1603.3 | 1614.5 | -0.7% |
+| 16k / 1 | 119.1 | 122.2 | -2.6% |
+| 16k / 16 | 524.8 | 523.2 | +0.3% |
+| 32k / 1 | 102.4 | 105.4 | -2.8% |
+| 64k / 1 | 92.4 | 89.5 | +3.2% |
+| 128k / 1 | 70.5 | 72.0 | -2.0% |
+
+Conclusion: the local FP8 tensor draft is not a better default. It only clearly
+wins the `0ctx / C=1` cell, is otherwise within noise or slightly slower, and
+adds only about 1.6% more KV cache. The default community recipe should keep the
+public `lightseekorg/kimi-k2.5-eagle3-mla` draft with `draft_kv_cache_dtype=fp8`.
+The local FP8 tensor draft can remain an experimental option for local testing.
 
 ## Current Upstream Patch Stack
 
