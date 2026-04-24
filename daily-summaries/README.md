@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-24](2026-04/2026-04-24.md) | DeepSeek V4 dropped (MIT): V4-Pro 1.6T params/49B active, Flash 284B. Flash fits 2× RTX 6000 Pro (~ |
 | [2026-04-23](2026-04/2026-04-23.md) | Qwen 3.6 27B + FP8 released — 40–130 tok/s on single RTX 6k with MTP3, 70–90% acceptance rate; |
 | [2026-04-22](2026-04/2026-04-22.md) | Kimi K2.6 hits 120–130 tok/s on 8×RTX 6000 Pro with DCP8 + Eagle3 speculative decoding + 3.6M fp8 |
 | [2026-04-21](2026-04/2026-04-21.md) | Kimi K2.6 released (1.1T params, same arch as K2.5, vision included): SWE-Bench Pro 58.6%, HLE beati |
@@ -69,6 +70,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-24](2026-04/2026-04-24.md) | DeepSeek V4 dropped (MIT): V4-Pro 1.6T params/49B active, Flash 284B. Flash fits 2× RTX 6000 Pro (~ |
 | [2026-04-23](2026-04/2026-04-23.md) | Qwen 3.6 27B + FP8 released — 40–130 tok/s on single RTX 6k with MTP3, 70–90% acceptance rate; |
 | [2026-04-22](2026-04/2026-04-22.md) | Kimi K2.6 hits 120–130 tok/s on 8×RTX 6000 Pro with DCP8 + Eagle3 speculative decoding + 3.6M fp8 |
 | [2026-04-21](2026-04/2026-04-21.md) | Kimi K2.6 released (1.1T params, same arch as K2.5, vision included): SWE-Bench Pro 58.6%, HLE beati |
