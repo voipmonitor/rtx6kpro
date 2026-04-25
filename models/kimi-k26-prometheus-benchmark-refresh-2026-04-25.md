@@ -7,13 +7,16 @@ the published tables in `models/kimi-k26.md`.
 
 Benchmark tooling changed, not the vLLM/SGLang server code in this pass:
 
-- `llm_decode_bench.py` is now `0.4.1-prom-ignore-eos`.
+- `llm_decode_bench.py` is now `0.4.2-prom-decode-warmup`.
 - Decode throughput for vLLM now uses the exact delta of
   `vllm:generation_tokens`/`vllm:generation_tokens_total` over the measured
   window instead of the median of 1-second samples.
 - Decode requests now send `ignore_eos=true` by default. Use `--respect-eos`
   for application-level latency tests. Benchmarking decode with EOS enabled was
   contaminated by repeated short completions.
+- Decode matrices can now use `--decode-warmup-seconds 20`. This runs a hidden
+  decode cell before the recorded matrix. It fixes the first-cell cold-start
+  artifact seen on Kimi MTP/EAGLE where `0/C1` was under-reported.
 - Prompt sizes are now targeted through `/tokenize` when available, so `16k`
   means the actual API prompt is 16,384 tokens, not an approximate character
   count.
@@ -30,7 +33,7 @@ Benchmark tooling changed, not the vLLM/SGLang server code in this pass:
 
 ## Hardware/Driver State
 
-Current NVIDIA module state:
+Initial NVIDIA module state before the forced-P2P test:
 
 ```text
 EnableResizableBar: 0
@@ -39,9 +42,24 @@ RegistryDwords: ""
 RegistryDwordsPerDevice: ""
 ```
 
-So the "forced P2P modprobe" configuration is not active in this boot. The
-numbers below are valid for the current driver state only. Testing with forced
-P2P requires a driver reload or reboot.
+Forced P2P was then enabled without reboot by installing:
+
+```bash
+cp /root/nvidia-p2p-override.conf /etc/modprobe.d/nvidia-p2p-override.conf
+modprobe -r nvidia_uvm nvidia_modeset nvidia
+modprobe nvidia
+modprobe nvidia_uvm
+```
+
+Active state after the reload:
+
+```text
+EnableResizableBar: 1
+DmaRemapPeerMmio: 1
+GrdmaPciTopoCheckOverride: 1
+RegistryDwords: "ForceP2P=0x11;RMForceP2PType=1;RMPcieP2PType=2;GrdmaPciTopoCheckOverride=1;EnableResizableBar=1"
+RegistryDwordsPerDevice: ""
+```
 
 ## Kimi Runtime
 
@@ -64,7 +82,7 @@ gpu_memory_utilization: 0.94
 Marlin FP8 force envs:  disabled
 ```
 
-Best measured DCP=1 + MTP=3 profile:
+Best measured DCP=1 + MTP=3 profile without forced-P2P modprobe:
 
 ```bash
 unset VLLM_ENABLE_PCIE_ALLREDUCE
@@ -78,6 +96,24 @@ export NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml
 export VLLM_DISABLED_KERNELS=MarlinFP8ScaledMMLinearKernel
 export VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1
 ```
+
+Best measured DCP=1 + MTP=3 profile with forced-P2P modprobe active:
+
+```bash
+unset VLLM_ENABLE_PCIE_ALLREDUCE
+export NCCL_P2P_DISABLE=0
+unset NCCL_MIN_NCHANNELS
+unset NCCL_MAX_NCHANNELS
+unset NCCL_BUFFSIZE
+export CUDA_DEVICE_MAX_CONNECTIONS=32
+export NCCL_P2P_LEVEL=SYS
+export NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml
+export VLLM_DISABLED_KERNELS=MarlinFP8ScaledMMLinearKernel
+export VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1
+```
+
+For DCP=1, forced-P2P modprobe makes custom AR safe, but not necessary. Keep
+`VLLM_ENABLE_PCIE_ALLREDUCE` unset unless a DCP=4/DCP=8 run proves otherwise.
 
 ## Exact Prefill, DCP=1 + MTP=3
 
@@ -102,9 +138,15 @@ Raw result:
 Measured with `/mnt/llm_decode_bench.py --skip-prefill`, 10 seconds per cell,
 `ignore_eos=true`.
 
+Important correction: this matrix was captured before the hidden decode warmup
+option existed. The first cell, `0/C1=76.2`, is a cold-start artifact. Reruns of
+that single cell after warmup measured `110.0 tok/s` over 30 seconds and
+`123.2 tok/s` over 10 seconds. New matrices should be generated with
+`--decode-warmup-seconds 20`.
+
 | ctx \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0 | 76.2 | 198.3 | 355.9 | 527.5 | 781.0 | 1100.8 | 1749.6 | 2235.4 |
+| 0 | 76.2* | 198.3 | 355.9 | 527.5 | 781.0 | 1100.8 | 1749.6 | 2235.4 |
 | 16k | 101.6 | 171.1 | 270.1 | 373.1 | 468.5 | 597.8 | 786.3 | 980.4 |
 | 32k | 95.3 | 158.8 | 220.9 | 286.8 | 345.9 | 430.5 | 538.5 | 624.1 |
 | 64k | 78.8 | 122.9 | 160.7 | 191.9 | 228.4 | 282.5 | 345.4 | 349.0 |
@@ -125,6 +167,8 @@ Raw result:
 Subset decode cells are aggregate tok/s. Prefill cells are exact Prometheus
 prefill tok/s.
 
+The first block was measured before forced P2P was enabled in the NVIDIA module.
+
 | Variant | Prefill 8k | Prefill 32k | Prefill 128k | Decode 0/C1 | Decode 0/C16 | Decode 16k/C1 | Decode 16k/C16 |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | custom AR on, default NCCL | 6,138 | 5,686 | 4,273 | 28.9 | 140.7 | 26.4 | 140.7 |
@@ -133,14 +177,40 @@ prefill tok/s.
 | custom AR off, P2P off, channels 32/64 | 7,263 | 6,590 | 4,760 | 71.0 | 791.3 | 101.5 | 468.6 |
 | custom AR on, P2P off, channels 16/32 | 7,168 | 6,580 | 4,763 | 27.8 | 154.7 | 24.3 | 149.2 |
 
+The second block was measured after the module reload with:
+
+```text
+ForceP2P=0x11
+RMForceP2PType=1
+RMPcieP2PType=2
+GrdmaPciTopoCheckOverride=1
+EnableResizableBar=1
+```
+
+Decode subset command includes `--decode-warmup-seconds 20`, so `0/C1` is not a
+first-cell cold-start artifact.
+
+| Variant, forced P2P modprobe ON | Prefill 8k | Prefill 32k | Prefill 128k | Decode 0/C1 | Decode 0/C16 | Decode 16k/C1 | Decode 16k/C16 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| custom AR off, NCCL P2P on/default | 7,633 | 6,896 | 4,918 | 125.3 | 779.1 | 109.5 | 468.5 |
+| custom AR on, NCCL P2P on/default | 7,645 | 6,902 | 4,921 | 121.6 | 738.6 | 106.7 | 453.4 |
+| custom AR off, NCCL P2P off, channels 16/32 | 7,284 | 6,604 | 4,767 | 124.2 | 802.6 | 107.7 | 478.0 |
+| custom AR on, NCCL P2P off, channels 16/32 | 7,283 | 6,605 | 4,768 | 128.2 | 755.0 | 114.4 | 442.7 |
+
 Interpretation:
 
-- `VLLM_ENABLE_PCIE_ALLREDUCE=1` is bad for this DCP=1 + MTP=3 profile. It
-  collapses decode throughput even when prefill is good.
+- Without forced P2P in the NVIDIA module, `VLLM_ENABLE_PCIE_ALLREDUCE=1` is
+  bad for this DCP=1 + MTP=3 profile. It collapses decode throughput even when
+  prefill is good.
+- With forced P2P in the NVIDIA module, custom AR no longer collapses decode.
+  It is not clearly better for DCP=1, though: `custom AR off, NCCL P2P
+  on/default` is the best balanced measured variant because it keeps the higher
+  prefill numbers and only slightly trails the best single decode cell.
 - `NCCL_P2P_DISABLE=1` plus higher NCCL channels improves prefill materially
-  without hurting the tested decode subset when custom AR is off.
+  only in the no-forced-P2P state. With forced P2P active, leaving NCCL P2P
+  enabled is faster for prefill.
 - 16/32 channels and 32/64 channels are effectively tied. 16/32 is the more
-  conservative recommendation.
+  conservative recommendation when `NCCL_P2P_DISABLE=1` is used.
 - The prefill improvement is not a measurement artifact: it comes from exact
   `prompt_tokens / request_prefill_time_seconds`, not TTFT subtraction.
 
@@ -157,6 +227,14 @@ Raw variant files:
 /mnt/kimi_prom_bench_20260425/kimi_docimage_dcp1_mtp3_ar_off_p2pdisable_ch32_64_prefill.json
 /mnt/kimi_prom_bench_20260425/kimi_docimage_dcp1_mtp3_ar_on_p2pdisable_ch16_32_decode.json
 /mnt/kimi_prom_bench_20260425/kimi_docimage_dcp1_mtp3_ar_on_p2pdisable_ch16_32_prefill.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aroff_decode_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aroff_prefill_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aron_decode_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aron_prefill_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aroff_ncclp2poff_ch16_32_decode_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aroff_ncclp2poff_ch16_32_prefill_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aron_ncclp2poff_ch16_32_decode_subset.json
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_aron_ncclp2poff_ch16_32_prefill_subset.json
 ```
 
 ## AIPerf Check
