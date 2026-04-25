@@ -69,7 +69,7 @@ Common runtime for the new Kimi measurements:
 image:                  voipmonitor/vllm:kimi-k26-mtp-upstream-stack-pcie-env-test-20260424
 target model:           moonshotai/Kimi-K2.6
 draft model:            lightseekorg/kimi-k2.5-eagle3-mla
-TP / DCP:               8 / 1
+TP / DCP:               8 / 1, 4, or 8
 speculative method:     eagle3
 speculative tokens:     3
 attention backend:      TRITON_MLA
@@ -160,6 +160,115 @@ Raw result:
 
 ```text
 /mnt/kimi_prom_bench_20260425/kimi_docimage_dcp1_mtp3_opt_decode_matrix.json
+```
+
+## Exact DCP=4 and DCP=8, MTP=3
+
+Measured after forced-P2P modprobe was active, with:
+
+```bash
+unset VLLM_ENABLE_PCIE_ALLREDUCE
+export NCCL_P2P_DISABLE=0
+export CUDA_DEVICE_MAX_CONNECTIONS=32
+export NCCL_P2P_LEVEL=SYS
+export NCCL_GRAPH_FILE=/mnt/nccl_graph_opt.xml
+```
+
+The same `voipmonitor/vllm:kimi-k26-mtp-upstream-stack-pcie-env-test-20260424`
+image was used. For DCP=4/DCP=8, the runtime DCP/XML guard from
+`/root/vllm/runtime_dcp_xml_patch` was bind-mounted over the three distributed
+communicator files. Without that guard, DCP=4 startup failed during DCP group
+creation with `NCCL error: unhandled system error`, because the full 8-GPU XML
+graph was applied to the smaller DCP subgroup.
+
+Startup KV cache from vLLM logs:
+
+| DCP | GPU KV cache size | Max concurrency at 262,144 tokens |
+|---:|---:|---:|
+| 4 | 1,115,136 tokens | 4.25x |
+| 8 | 1,753,088 tokens | 6.69x |
+
+### DCP=4 Prefill
+
+Measured with `/mnt/vllm_prefill_prom_bench.py`, 2 warm samples per context.
+
+| Context | Prompt tokens | Median prefill tok/s |
+|---:|---:|---:|
+| 8k | 8,192 | 7,646 |
+| 16k | 16,384 | 7,343 |
+| 32k | 32,768 | 6,803 |
+| 64k | 65,536 | 5,913 |
+| 128k | 131,072 | 4,685 |
+
+Raw result:
+
+```text
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_dcp4_mtp3_aroff_ncclp2pon_prefill_warm.json
+```
+
+### DCP=4 Decode Matrix
+
+Measured with `/mnt/llm_decode_bench.py --skip-prefill`, 10 seconds per cell,
+`ignore_eos=true`, `--decode-warmup-seconds 20`.
+
+| ctx \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 105.3 | 174.2 | 277.4 | 423.1 | 632.1 | 881.4 | 1337.1 | 1825.3 |
+| 16k | 88.5 | 142.5 | 225.5 | 315.0 | 428.6 | 544.1 | 762.3 | 1069.5 |
+| 32k | 83.7 | 133.2 | 186.4 | 244.2 | 340.8 | 420.8 | 583.3 | 740.6 |
+| 64k | 80.4 | 115.3 | 143.9 | 181.7 | 221.3 | 299.4 | 386.5 | 444.2 |
+| 128k | 62.1 | 73.6 | 91.4 | 121.9 | 147.6 | 190.8 | 218.8 | 35.5* |
+
+`128k / C=128` is capacity-limited: the benchmark requested 128 concurrent
+requests, but vLLM averaged 116 running requests. Treat that cell as invalid for
+headline throughput.
+
+Raw result:
+
+```text
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_dcp4_mtp3_aroff_ncclp2pon_decode_matrix.json
+```
+
+### DCP=8 Prefill
+
+Measured with `/mnt/vllm_prefill_prom_bench.py`, 2 warm samples per context.
+
+| Context | Prompt tokens | Median prefill tok/s |
+|---:|---:|---:|
+| 8k | 8,192 | 7,639 |
+| 16k | 16,384 | 7,333 |
+| 32k | 32,768 | 6,779 |
+| 64k | 65,536 | 5,883 |
+| 128k | 131,072 | 4,643 |
+
+Raw result:
+
+```text
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_dcp8_mtp3_aroff_ncclp2pon_prefill_warm.json
+```
+
+### DCP=8 Decode Matrix
+
+Measured with `/mnt/llm_decode_bench.py --skip-prefill`, 10 seconds per cell,
+`ignore_eos=true`, `--decode-warmup-seconds 20`.
+
+| ctx \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 98.6 | 148.3 | 233.1 | 358.9 | 553.9 | 645.3 | 959.9 | 1317.2 |
+| 16k | 91.9 | 145.6 | 217.4 | 316.5 | 473.9 | 554.2 | 832.3 | 1115.9 |
+| 32k | 86.7 | 137.1 | 196.7 | 278.7 | 399.5 | 499.8 | 742.0 | 911.8 |
+| 64k | 79.7 | 124.8 | 169.7 | 236.9 | 314.0 | 401.3 | 515.5 | 664.2 |
+| 128k | 68.1 | 100.0 | 130.0 | 173.2 | 224.1 | 303.9 | 369.9 | 26.2* |
+
+`128k / C=128` is capacity-limited: the benchmark requested 128 concurrent
+requests, but vLLM averaged 107.1 running requests and had queue pressure during
+90.9% of the measured samples. Treat that cell as invalid for headline
+throughput.
+
+Raw result:
+
+```text
+/mnt/kimi_prom_bench_20260425/kimi_modp2p_dcp8_mtp3_aroff_ncclp2pon_decode_matrix.json
 ```
 
 ## Communication Variant Matrix
