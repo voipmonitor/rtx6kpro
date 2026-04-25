@@ -7,7 +7,7 @@ the published tables in `models/kimi-k26.md`.
 
 Benchmark tooling changed, not the vLLM/SGLang server code in this pass:
 
-- `llm_decode_bench.py` is now `0.4.2-prom-decode-warmup`.
+- `llm_decode_bench.py` is now `0.4.3-effective-concurrency`.
 - Decode throughput for vLLM now uses the exact delta of
   `vllm:generation_tokens`/`vllm:generation_tokens_total` over the measured
   window instead of the median of 1-second samples.
@@ -17,6 +17,12 @@ Benchmark tooling changed, not the vLLM/SGLang server code in this pass:
 - Decode matrices can now use `--decode-warmup-seconds 20`. This runs a hidden
   decode cell before the recorded matrix. It fixes the first-cell cold-start
   artifact seen on Kimi MTP/EAGLE where `0/C1` was under-reported.
+- Decode cells now record `avg_running_reqs`, `max_running_reqs`,
+  `warmup_timed_out`, and `capacity_limited`. If vLLM cannot actually admit the
+  requested concurrency because the cell does not fit in KV cache, the table
+  prints `(X/Y)*` where `X` is effective running concurrency from Prometheus and
+  `Y` is requested concurrency. Those cells should be treated as overload
+  probes, not headline throughput numbers.
 - Prompt sizes are now targeted through `/tokenize` when available, so `16k`
   means the actual API prompt is 16,384 tokens, not an approximate character
   count.
