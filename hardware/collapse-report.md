@@ -268,11 +268,11 @@ For the c-payne *3-stage hierarchical* configuration (root switch + leaf switche
 
 ## Files in this repo for further context
 
-* [`hardware/pcie-posted-write-collapse.md`](hardware/pcie-posted-write-collapse.md) — extended history, alternative reproductions, and per-platform results across multiple test rigs.
-* [`hardware/wrx90-cpayne-microchip-switches.md`](hardware/wrx90-cpayne-microchip-switches.md) — 3-switch hierarchical setup that does NOT exhibit the collapse.
-* [`hardware/wrx90-cpayne-2switch-flat.md`](hardware/wrx90-cpayne-2switch-flat.md) — 2-switch flat setup (no collapse, only 2 root complexes involved).
-* [`hardware/wrx90-cpayne-16gpu-4switch.md`](hardware/wrx90-cpayne-16gpu-4switch.md) — 16-GPU 4-switch setup where collapse was originally discovered.
-* [`hardware/asus-esc8000a-e13p-broadcom-switches.md`](hardware/asus-esc8000a-e13p-broadcom-switches.md) — independent reproduction on dual-socket EPYC + Broadcom PEX890xx switches.
+* [`pcie-posted-write-collapse.md`](pcie-posted-write-collapse.md) — extended history, alternative reproductions, and per-platform results across multiple test rigs.
+* [`wrx90-cpayne-microchip-switches.md`](wrx90-cpayne-microchip-switches.md) — 3-switch hierarchical setup that does NOT exhibit the collapse.
+* [`wrx90-cpayne-2switch-flat.md`](wrx90-cpayne-2switch-flat.md) — 2-switch flat setup (no collapse, only 2 root complexes involved).
+* [`wrx90-cpayne-16gpu-4switch.md`](wrx90-cpayne-16gpu-4switch.md) — 16-GPU 4-switch setup where collapse was originally discovered.
+* [`asus-esc8000a-e13p-broadcom-switches.md`](asus-esc8000a-e13p-broadcom-switches.md) — independent reproduction on dual-socket EPYC + Broadcom PEX890xx switches.
 
 ---
 
