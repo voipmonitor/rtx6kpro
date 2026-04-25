@@ -121,6 +121,54 @@ The first 8k sample in both variants was a cold/compile outlier and was excluded
 - For GLM NSA on this local box, AR-off is the safer default for throughput testing unless the target workload is long-context low-concurrency decode.
 - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` should not be used with this SGLang b12x setup; earlier it broke pcie_oneshot graph/cuda-ipc capture. This successful run omitted it.
 
+## GLM local SGLang NSA: Luke c314a13 + b12x 0.10.0 retest
+
+Runtime:
+
+- Image: `voipmonitor/sglang:luke-main-c314a13-b12x0100-glm-nsa-20260425`
+- SGLang: `0.5.10.post2.dev584+gc314a13f7`
+- `b12x`: `0.10.0`
+- Model: `lukealonso/GLM-5.1-NVFP4`
+- `cuda_graph_max_bs=16`
+- Complete results below use `mem_fraction_static=0.70`.
+
+The first attempt with `mem_fraction_static=0.76` failed with CUDA OOM during draft/speculative MoE prefill. The failing allocation was a 768 MiB scratch buffer while each GPU had only about 0.4 GiB free, so the retest was repeated at `mem_fraction_static=0.70`.
+
+### Updated GLM prefill, Prometheus counters
+
+SGLang `/tokenize` still rejected the benchmark's tokenize request and prompt sizing used the approximate chars/token fallback. Throughput is from Prometheus prompt-token deltas and actual prompt token counts.
+
+The first 8k sample in both variants was a cold/compile outlier and was excluded. 32k and 128k still showed large first-sample variance, so both the median summary and the second warm sample are shown.
+
+| variant | 8k actual tokens | 8k tok/s | 32k actual tokens | 32k median tok/s | 32k warm tok/s | 128k actual tokens | 128k median tok/s | 128k warm tok/s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| AR-off | 4,800 | 2,740 | 18,947 | 1,808 | 2,619 | 75,554 | 1,943 | 2,204 |
+| AR-on | 4,798 | 2,745 | 18,945 | 1,803 | 2,614 | 75,552 | 1,940 | 2,202 |
+
+### Updated GLM decode
+
+| variant | ctx \ conc | 1 | 4 | 16 | 30 |
+|---|---|---:|---:|---:|---:|
+| AR-off | 0 | 92.7 | 253.3 | 536.3 | 242.6 |
+| AR-off | 16k | 75.5 | 202.5 | - | - |
+| AR-off | 64k | 71.1 | - | - | - |
+| AR-off | 128k | skip | - | - | - |
+| AR-on | 0 | 89.2 | 251.5 | 525.7 | 260.5 |
+| AR-on | 16k | 87.1 | 201.7 | - | - |
+| AR-on | 64k | 68.9 | - | - | - |
+| AR-on | 128k | skip | - | - | - |
+
+### Updated GLM decision
+
+- The new Luke `c314a13` + `b12x 0.10.0` stack works, but it needs lower `mem_fraction_static` than the old image for this test shape.
+- Prefill does not materially change between AR-off and AR-on.
+- Decode is also mostly unchanged by oneshot AR:
+  - AR-off is slightly better at `0/C1`, `0/C4`, `0/C16`, and `64k/C1`.
+  - AR-on is better at `0/C30` and `16k/C1`.
+  - `16k/C4` is effectively tied.
+- Compared with the previous `f4b7830` + `b12x 0.9.6` run, short-context decode is roughly similar, but the new stack did not produce a clear improvement in this benchmark.
+- Do not publish the `0.76` memory setting for this new image without further tuning; it OOMed in the measured configuration.
+
 ## Tooling notes
 
 - `/mnt/llm_decode_bench.py` v0.4.3 distinguishes raw throughput from effective-concurrency-valid throughput.
@@ -131,4 +179,4 @@ The first 8k sample in both variants was a cold/compile outlier and was excluded
 
 - Remote Kimi: `10.229.14.14:/mnt/kimi_remote8_bench_20260425_201159`
 - Local GLM: `/mnt/glm_local_sglang_bench_20260425_204500`
-
+- Local GLM Luke c314a13 + b12x 0.10.0 retest: `/mnt/glm_luke_c314_b12x0100_bench_mem070_20260425_223046`
