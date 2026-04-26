@@ -1,0 +1,63 @@
+Both GPUs at default PL=600W. Identical workloads on both, simultaneously.
+Will compare clock + power at each card's NATURAL draw.
+Format: pstate, gfx_mhz, mem_mhz, power_w, temp_c
+
+========================================================================
+  BF16 8192² matmul (max compute)
+========================================================================
+  Sample mid-run (after 8s of 25s):
+    GPU 14 WS  : P1, 1777, 13365, 599.99, 55
+    GPU 8 Server: P0, 2077, 12481, 600.55, 59
+  Sample late-run (after 18s):
+    GPU 14 WS  : P1, 1762, 13365, 599.99, 60
+    GPU 8 Server: P0, 2062, 12481, 600.28, 66
+  GPU 14 WS  : 8344 iters in 28.6s = 292 iter/s
+  GPU 8 Server: 9571 iters in 28.1s = 341 iter/s
+
+========================================================================
+  BF16 1024² matmul (light compute)
+========================================================================
+  Sample mid-run (after 8s of 25s):
+    GPU 14 WS  : P1, 2805, 13365, 599.01, 66
+    GPU 8 Server: P0, 2415, 12481, 390.05, 68
+  Sample late-run (after 18s):
+    GPU 14 WS  : P1, 2805, 13365, 600.03, 68
+    GPU 8 Server: P0, 2415, 12481, 392.92, 70
+  GPU 14 WS  : 1878636 iters in 25.0s = 75125 iter/s
+  GPU 8 Server: 1624247 iters in 25.0s = 64949 iter/s
+
+========================================================================
+  BF16 2048² matmul (medium compute)
+========================================================================
+  Sample mid-run (after 8s of 25s):
+    GPU 14 WS  : P1, 2505, 13365, 600.02, 70
+    GPU 8 Server: P0, 2370, 12481, 533.19, 77
+  Sample late-run (after 18s):
+    GPU 14 WS  : P1, 2497, 13365, 599.99, 71
+    GPU 8 Server: P0, 2370, 12481, 541.99, 81
+  GPU 14 WS  : 83151 iters in 25.1s = 3318 iter/s
+  GPU 8 Server: 78658 iters in 25.1s = 3138 iter/s
+
+========================================================================
+  FP32 1024² matmul
+========================================================================
+  Sample mid-run (after 8s of 25s):
+    GPU 14 WS  : P1, 2227, 13365, 599.98, 70
+    GPU 8 Server: P0, 2287, 12481, 591.37, 85
+  Sample late-run (after 18s):
+    GPU 14 WS  : P1, 2227, 13365, 599.99, 71
+    GPU 8 Server: P0, 2137, 12481, 499.36, 85
+  GPU 14 WS  : 538904 iters in 25.0s = 21536 iter/s
+  GPU 8 Server: 524687 iters in 25.0s = 20966 iter/s
+
+========================================================================
+  4 GB memcopy (memory-bound)
+========================================================================
+  Sample mid-run (after 8s of 25s):
+    GPU 14 WS  : P1, 2842, 13365, 404.88, 59
+    GPU 8 Server: P0, 2422, 12481, 367.47, 78
+  Sample late-run (after 18s):
+    GPU 14 WS  : P1, 2842, 13365, 401.41, 58
+    GPU 8 Server: P0, 2422, 12481, 364.95, 76
+  GPU 14 WS  : 17560 iters in 25.8s = 682 iter/s
+  GPU 8 Server: 17512 iters in 25.8s = 680 iter/s

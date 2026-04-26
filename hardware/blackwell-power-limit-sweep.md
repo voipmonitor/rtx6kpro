@@ -321,3 +321,56 @@ Reproduction script: `/tmp/luke_pl_sweep.sh` (WS, 150-600 W) and `/tmp/luke_pl_s
 * **Max-Q throughput numbers** — community contributor reported only telemetry, not Gflop/s.
 * **Sustained multi-hour behaviour** — each level was 30 s steady state. Long sustained loads may shift thermal equilibrium upward.
 * **Different chassis / airflow** — these results are specific to this 4 U workstation tower with stock fans.
+
+---
+
+## Addendum — Same workload simultaneously on WS and Server (no PL cap)
+
+The previous sweep capped each card at fixed power limits. A different question: with PL at the default 600 W on both cards, run **the same** workload simultaneously on a WS GPU (14) and a Server GPU (8) and see how each card chooses to clock. Hypothesis under test: "if both cards naturally draw ~300 W from a moderate workload, do they clock the same?" — i.e. is the SKU difference purely a function of power-budget headroom, or is the boost decision itself SKU-specific?
+
+Five workloads, 25 s sustained, both GPUs at PL=600 W default, single host process running both as concurrent threads.
+
+### Results (steady-state mid-run sample)
+
+| Workload | WS (GPU 14): clock / power / iter/s | Server (GPU 8): clock / power / iter/s |
+|----------|-------------------------------------|----------------------------------------|
+| BF16 8192² matmul (max compute) | **1762 MHz** / 600 W / 292 it/s | **2062 MHz** / 600 W / **341 it/s** |
+| BF16 2048² matmul (medium compute) | **2497 MHz** / 600 W / 3318 it/s | **2370 MHz** / 542 W / 3138 it/s |
+| BF16 1024² matmul (light compute) | **2805 MHz** / 600 W / 75 125 it/s | **2415 MHz** / **390 W** / 64 949 it/s |
+| FP32 1024² matmul | **2227 MHz** / 600 W / 21 536 it/s | **2137 MHz** / 499 W (throttle 85 °C) / 20 966 it/s |
+| 4 GB memcopy (memory-bound) | **2842 MHz** / **401 W** / 682 it/s | **2422 MHz** / **365 W** / 680 it/s |
+
+### What this shows
+
+* **WS card aggressively uses all 600 W** even on light workloads. BF16 1024² matmul saturates a WS card at the full 600 W power limit and 2805 MHz; the same kernel on a Server card draws only **390 W** at 2415 MHz. Same workload, ≈1.54 × the power on WS.
+
+* **Server card is fundamentally more conservative.** With no PL cap it still chooses to clock and draw less than WS for any non-saturating workload. This is a firmware/SKU choice, not a temperature decision (Server card was 70 °C at 390 W, plenty of thermal headroom).
+
+* **At the closest-to-equal power point (memcopy)** — WS naturally draws 401 W, Server 365 W — **WS still clocks 17 % higher** (2842 vs 2422 MHz). They are not equivalent at equal power. The boost decision is itself SKU-specific.
+
+* **Throughput is workload-dependent:**
+  * Compute-saturating workloads: Server's higher boost-curve wins (BF16 8192² → +17 % iter/s on Server at the same 600 W).
+  * Light/memory-bound workloads: WS's "burn the watts" approach wins (BF16 1024² → +16 % iter/s on WS, but at 1.54 × the power).
+  * Memory-bound (memcopy): both deliver essentially identical iter/s (682 vs 680) — the workload doesn't care about boost decisions because the memory clock is invariant within each SKU.
+
+### Refuting the hypothesis
+
+The original hypothesis was: "if we let both cards run at their natural draw without PL cap and pick a workload that produces ~300 W, will the cores clock similarly?"
+
+**No.** Even at *closer-to-equal* power draws (401 W WS / 365 W Server during memcopy), the WS card still clocks ~17 % higher than the Server card. The two SKUs do not converge to the same clock at the same power; they have different V/F decisions baked into firmware.
+
+Even more pointedly: the *same* workload (BF16 1024² matmul) lands at very different operating points:
+* WS: 2805 MHz / 600 W
+* Server: 2415 MHz / 390 W
+
+The Server card, given identical work, simply chooses a less aggressive boost. Whether you cap the WS to 390 W or let it run free, it will not behave like the Server card — they have different boost philosophies.
+
+This is also why the previous PL=300 W sweep showed Server *winning* by +38 % at 300 W: at a forced 300 W cap, Server's V/F is already tuned for low/mid power and produces high clock there; WS's V/F is tuned for high-power operation and produces a lower clock when starved.
+
+### Practical implication
+
+* If you have a moderate compute workload (LLM inference at typical batch sizes, where compute is not saturating), **a WS card will draw substantially more power than a Server card on the same kernel** — by 1.5–2 × at light load. This is not because the WS card is "less efficient" but because its firmware deliberately races-to-idle-with-headroom, while the Server card prefers low-power operation by default.
+
+* For energy-constrained inference, **either pin the Server SKU at PL=300 W (best Gflop/s/W = 414)**, or trust the Server's natural boost behavior to spend less power on partial-utilisation workloads. Do **not** assume a WS card with no PL cap will behave like a Server card on the same kernel; it will use the available watts to push clocks higher.
+
+Raw output: [`data/blackwell-natural-draw-output.txt`](../data/blackwell-natural-draw-output.txt)
