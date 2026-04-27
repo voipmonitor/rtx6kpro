@@ -370,6 +370,95 @@ The two cells where the original wiring sat just below the saturation line (51.4
 
 ---
 
+## Variant 3 — chips concentrated on one quadrant each ("crossed" wiring)
+
+A third wiring of the same two physical c-payne chips. Both physical chips still partition into 2 VS each, still all 8 GPUs, but the chip-to-quadrant assignment is now different:
+
+| Wiring | chip A upstreams land on | chip B upstreams land on | Active quadrants | Chip mapping (from BW signature) |
+|--------|---------------------------|---------------------------|------------------|----------------------------------|
+| Original (variant 1) | Q0 (SW1) + Q2 (SW3) | Q1 (SW2) + Q3 (SW4) | all 4 | A=SW1+SW3, B=SW2+SW4 |
+| Variant 2 | Q0 (SW1) + Q3 (SW3) — split | Q0 (SW2) + Q3 (SW4) — split | 2 (Q0, Q3) | A=SW1+SW3, B=SW2+SW4 |
+| **Variant 3** | **Q0 (SW1) + Q0 (SW2) — both Q0** | **Q3 (SW3) + Q3 (SW4) — both Q3** | **2 (Q0, Q3)** | **A=SW1+SW2, B=SW3+SW4** |
+
+In variant 3, each physical chip has **both uplinks on the same CPU quadrant**. Chip A's two virtual switches both land on root 00 (different root ports of Q0); chip B's two on root e0 (Q3).
+
+The bandwidth signature confirms the new chip mapping: SW1↔SW2 is now the diagonal "fast" pair (intra-chip A) and SW3↔SW4 is the second fast pair (intra-chip B). Previously these were SW1↔SW3 and SW2↔SW4.
+
+### Variant 3 — measured results
+
+**2-pair single src → single dst** (4×4, GB/s aggregate):
+
+| | →SW1 | →SW2 | →SW3 | →SW4 |
+|---|---:|---:|---:|---:|
+| SW1→ | — | **112.5** ✨ | 56.4 | 56.4 |
+| SW2→ | **112.5** ✨ | — | 56.4 | 56.4 |
+| SW3→ | 56.4 | 56.4 | — | **112.5** ✨ |
+| SW4→ | 56.4 | 56.4 | **112.5** ✨ | — |
+
+The intra-chip pair has *moved*: now SW1+SW2 and SW3+SW4 give the doubled bandwidth (vs SW1+SW3 / SW2+SW4 in variants 1 and 2). Same chip-internal-fabric phenomenon, just paired differently.
+
+**1 src → 2 dst** (12 patterns):
+
+| Pattern | V1 | V2 | V3 | Notes |
+|---------|---:|---:|---:|-------|
+| SW1 → SW2+SW3 | 112.5 | 112.5 | 112.5 | one path intra-chip A in V3 |
+| SW1 → SW2+SW4 | 56.4 | 56.0 | **112.5** | one path intra-chip A in V3 |
+| SW1 → SW3+SW4 | 112.5 | 112.5 | **56.4** | both cross-chip in V3 |
+| SW2 → SW1+SW3 | 56.0 | 56.0 | **112.5** | one intra in V3 |
+| SW2 → SW1+SW4 | 112.5 | 112.5 | 112.5 | one intra in V3 |
+| SW2 → SW3+SW4 | 112.5 | 112.4 | **56.4** | both cross-chip |
+| SW3 → SW1+SW2 | 112.5 | 112.5 | **56.4** | both cross-chip |
+| SW3 → SW1+SW4 | 112.5 | 112.5 | 112.5 | one intra-chip B |
+| SW3 → SW2+SW4 | 51.4 | 56.4 | 112.5 | one intra in V3 |
+| SW4 → SW1+SW2 | 112.5 | 112.5 | **56.4** | both cross-chip |
+| SW4 → SW1+SW3 | 54.6 | 56.4 | 112.5 | one intra in V3 |
+| SW4 → SW2+SW3 | 112.5 | 112.5 | 112.5 | one intra-chip B |
+
+The "fast" rows in V3 (112.5) are exactly those where one of the two destinations is the same-chip neighbour: that flow stays inside the chip and the other flow gets the full uplink to itself.
+
+**Aggregate / stress tests**:
+
+| Test | V1 (4-quad) | V2 (split) | **V3 (concentrated)** |
+|------|------------:|-----------:|----------------------:|
+| 4 src switches → 1 dst (SW1) | 75.4 | 75.2 | **112.0** |
+| **All-to-all 8 GPU (56 pairs)** | **254.2** | 225.6 | **213.1** |
+| All-to-all per-pair | 4.54 | 4.03 | 3.80 |
+
+* V3 has the worst all-to-all (213 GB/s, ~16 % below V1).
+* V3 has the **best** 4-src-to-1-dst aggregate (112 GB/s vs 75 in V1/V2). When all four source switches hit a single destination switch, two of those flows are intra-chip (SW2→SW1 stays in chip A) so they don't fight for any uplink.
+
+**ASUS-equivalent collapse-trigger patterns** (write):
+
+| Pattern | V1 | V2 | **V3** | Notes |
+|---------|---:|---:|-------:|-------|
+| `(0,2)+(1,6)` (SW1→SW2+SW4) | 54.0 | 56.0 | **112.5** | SW1→SW2 is now intra-chip in V3 |
+| `(0,2)+(4,6)` (different src VS → SW2+SW4) | 112.0 | 112.5 | 112.5 | |
+| `(0,2)+(1,3)` (SW1→SW2 only, 1 dst root) | 56.4 | 56.4 | **112.5** | both intra-chip in V3 |
+| `(0,4)+(1,6)` (SW1→SW3+SW4) | 111.9 | 111.2 | **56.4** | both cross-chip in V3 |
+| `(0,2)+(0,6)+(1,3)+(1,7)` (4-flow) | 56.2 | 56.2 | **75.9** | mix of intra+cross |
+
+**Still no collapse on any pattern**, even at the ASUS-trigger conditions. The chip mapping change just shifts which pairs land in the "fast intra-chip" lane vs the "slow cross-chip" lane.
+
+### Why V3 has different numbers
+
+* **All-to-all drops further**: with both chips concentrated on one quadrant each, *every* cross-chip flow has to traverse the same Q0 ↔ Q3 inter-quadrant fabric link. In V2, chip-A traffic had two paths into Q3 (one intra-chip via the chip A's own Q3 upstream, one cross-quadrant via Q0↔Q3 IF) so contention was lower. V3 has no chip-A path to Q3 at all — every chip A → chip B flow crosses the same IF.
+* **4-src → 1-dst SW1 jumps to 112 GB/s**: of the four source GPUs (one per switch), the two on chip A (SW2's two GPUs) reach SW1 entirely through chip A's internal fabric. Only the two flows from chip B (SW3, SW4) actually hit SW1's upstream port. So SW1's uplink only carries half the traffic.
+* **The collapse trigger truth-table is structurally different**: with chip A entirely on Q0 and chip B entirely on Q3, **a 1-src → 2-dst pattern that hits "two different destination roots" is structurally impossible without including an intra-chip path** (because to hit two different roots from one chip, one destination must be on the chip's own quadrant — which is intra-chip — and the other on the opposite quadrant — which is cross-chip). The intra-chip flow bypasses CPU IOD entirely, so the "trigger" pattern never has both flows hitting CPU arbitration.
+
+### Picking between the variants
+
+| Workload pattern | Best variant |
+|------------------|--------------|
+| All-to-all (MoE token routing, NCCL alltoall) | **V1** (4-quadrant): 254 GB/s aggregate |
+| Reduce-to-one-GPU (NCCL reduce) | **V3** (concentrated): 112 GB/s into a single switch |
+| Tensor-parallel within one chip's GPUs | any (chip-internal fabric is the same in all variants) |
+| Tensor-parallel across chips | V1 marginally best, V2/V3 within ±5 % |
+| Avoiding collapse | all three variants on TR Pro + Microchip — none collapses on AMD-host with this 2-VS-per-chip layout |
+
+For our specific chassis on a TR Pro 7955WX, the **default recommendation is V1 (4-quadrant, original wiring)**: it's the only variant with no aggregate-throughput penalty, and it gives the cleanest mapping for monitoring (each VS on its own root makes lspci traceable). V2 and V3 are interesting science but trade ~10–16 % aggregate fabric for nothing structural.
+
+---
+
 ## Cross-references
 
 * [`collapse-report.md`](collapse-report.md) — standalone report on the AMD IOD posted-write collapse, the bug this layout sidesteps.
