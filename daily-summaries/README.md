@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-27](2026-04/2026-04-27.md) | llm_decode_bench v0.4.0 released — major rework: split prefill/sustained-decode/burst layers, new  |
 | [2026-04-26](2026-04/2026-04-26.md) | DS4 Flash on 2x RTX 6000 Pro: acronjob published a vLLM patch repo, pushing from ~47 → ~65 tg/s (c |
 | [2026-04-25](2026-04/2026-04-25.md) | DS V4/Flash blocked on SM120: DeepGEMM explicitly confirmed no SM120 support planned. Both DS V4 Pro |
 | [2026-04-24](2026-04/2026-04-24.md) | DeepSeek V4 dropped (MIT): V4-Pro 1.6T params/49B active, Flash 284B. Flash fits 2× RTX 6000 Pro (~ |
@@ -72,6 +73,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-27](2026-04/2026-04-27.md) | llm_decode_bench v0.4.0 released — major rework: split prefill/sustained-decode/burst layers, new  |
 | [2026-04-26](2026-04/2026-04-26.md) | DS4 Flash on 2x RTX 6000 Pro: acronjob published a vLLM patch repo, pushing from ~47 → ~65 tg/s (c |
 | [2026-04-25](2026-04/2026-04-25.md) | DS V4/Flash blocked on SM120: DeepGEMM explicitly confirmed no SM120 support planned. Both DS V4 Pro |
 | [2026-04-24](2026-04/2026-04-24.md) | DeepSeek V4 dropped (MIT): V4-Pro 1.6T params/49B active, Flash 284B. Flash fits 2× RTX 6000 Pro (~ |
