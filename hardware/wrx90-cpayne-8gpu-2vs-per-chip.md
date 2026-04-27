@@ -266,7 +266,16 @@ Detecting that two of the OS-visible "switches" are actually the same physical c
 * 112 GB/s pairs: SW1↔SW3 and SW2↔SW4 → these live on chip A and chip B respectively.
 * 56 GB/s pairs: everything else → these are cross-chip and uplink-bound.
 
-The full sweep script (drives all 12 source-VS / dest-VS combinations and the 12 collapse-trigger combinations) is at `/tmp/collapse_2gpu_full.py` on the test rig.
+The full sweep script (drives all 12 source-VS / dest-VS combinations and the 12 collapse-trigger combinations) is checked into the repo at [`scripts/collapse_2gpu_full.py`](../scripts/collapse_2gpu_full.py). The ASUS-equivalent collapse pattern test (with WRITE/READ split) is at [`scripts/asus_replica.py`](../scripts/asus_replica.py).
+
+Run them as:
+
+```bash
+python3 scripts/collapse_2gpu_full.py    # full bandwidth matrix + 1-src→2-dst patterns + all-to-all
+python3 scripts/asus_replica.py          # ASUS-equivalent COLLAPSE / OK / 4-flow patterns, write+read
+```
+
+Both assume GPU index → switch mapping is `SW1: 0,1   SW2: 2,3   SW3: 4,5   SW4: 6,7`. Adjust the lists at the top of each script if your topology assigns differently.
 
 ---
 
@@ -277,6 +286,87 @@ The full sweep script (drives all 12 source-VS / dest-VS combinations and the 12
 * **For all-to-all** (MoE token routing), this topology delivers 254 GB/s aggregate vs 179 GB/s on the previous 16-GPU 4-switch topology. ~42 % more useful aggregate, half from the intra-chip routing not paying for the IOD round-trip.
 * **Mapping a real workload to physical chips** matters: if you assign cards to hosts/processes ignoring the chip mapping, you can accidentally place every cross-process flow on the cross-chip path and miss the intra-chip win. Use the bandwidth matrix above (or measure with the script) to determine the chip assignment of each VS, then plan accordingly.
 * **The collapse risk reappears** if you ever scale this to 4 GPU per VS (e.g., the previous 16-GPU layout): in that case 4 source GPUs can dispatch to 3 distinct destination roots concurrently and the IOD arbitration breaks. Sticking to 2 GPU per VS is a structural workaround.
+
+---
+
+## Variant: 2 active root complexes (both chips on same quadrant pairs)
+
+A second wiring of the same two physical c-payne chips was tested on the same rig. The chip-to-VS mapping (i.e. which two VSs share a physical chip) is unchanged — bandwidth signature still cleanly shows chip A = SW1+SW3, chip B = SW2+SW4. What changed is **which CPU root ports the two upstreams of each chip land on**:
+
+| Wiring | Chip A upstreams land on | Chip B upstreams land on | Active CPU quadrants |
+|--------|---------------------------|---------------------------|----------------------|
+| Original (this page's main results) | Q0 (SW1) + Q2 (SW3) | Q1 (SW2) + Q3 (SW4) | **all 4** (Q0, Q1, Q2, Q3) |
+| Variant | Q0 (SW1) + Q0 (SW3) | Q3 (SW2) + Q3 (SW4) | **only 2** (Q0 and Q3) |
+
+Concretely, in the variant: `00:01.1` and `00:03.1` are *both* root ports on the Q0 root complex, each carrying one upstream of chip A. `e0:01.1` and `e0:03.1` are both on Q3, each carrying one upstream of chip B. The other two quadrants (Q1, Q3) host nothing.
+
+### Variant — measured results
+
+Driven by the exact same scripts referenced above. Numbers are aggregate write bandwidth.
+
+**2-pair single src → single dst** (4×4 matrix, GB/s aggregate):
+
+| | →SW1 | →SW2 | →SW3 | →SW4 |
+|---|---:|---:|---:|---:|
+| SW1→ | — | 56 | **112** ✨ | 56 |
+| SW2→ | 56 | — | 56 | **112** ✨ |
+| SW3→ | **112** ✨ | 56 | — | 56 |
+| SW4→ | 56 | **112** ✨ | 56 | — |
+
+**Identical to the original wiring.** Diagonal pairs hit 112 GB/s, others saturate at 56. Chip mapping unchanged: bandwidth signature confirms chip A = SW1+SW3, chip B = SW2+SW4.
+
+**1 src switch → 2 different dst switches** (12 patterns):
+
+| Pattern | Original wiring | Variant | Δ |
+|---------|----------------:|--------:|--:|
+| SW1 → SW2+SW3 | 112.5 | 112.5 | 0 |
+| SW1 → SW2+SW4 | 56.4 | 56.0 | −0.4 |
+| SW1 → SW3+SW4 | 112.5 | 112.5 | 0 |
+| SW2 → SW1+SW3 | 56.0 | 56.0 | 0 |
+| SW2 → SW1+SW4 | 112.5 | 112.5 | 0 |
+| SW2 → SW3+SW4 | 112.5 | 112.4 | 0 |
+| SW3 → SW1+SW2 | 112.5 | 112.5 | 0 |
+| SW3 → SW1+SW4 | 112.5 | 112.5 | 0 |
+| SW3 → SW2+SW4 | **51.4** | **56.4** | **+5** |
+| SW4 → SW1+SW2 | 112.5 | 112.5 | 0 |
+| SW4 → SW1+SW3 | **54.6** | **56.4** | **+2** |
+| SW4 → SW2+SW3 | 112.5 | 112.5 | 0 |
+
+The two cells where the original wiring sat just below the saturation line (51.4 and 54.6 GB/s) are now at full saturation (~56 GB/s). All other cells unchanged.
+
+**Aggregate / stress tests**:
+
+| Test | Original wiring | Variant | Δ |
+|------|----------------:|--------:|--:|
+| 4 src switches → 1 dst (SW1) | 75.4 GB/s | 75.2 GB/s | 0 |
+| **All-to-all 8 GPU (56 pairs)** | **254.2 GB/s** | **225.6 GB/s** | **−28.6 GB/s (−11 %)** |
+| All-to-all per-pair | 4.54 GB/s | 4.03 GB/s | −0.51 |
+
+**ASUS-equivalent collapse-trigger patterns** (write):
+
+| Pattern | Original wiring | Variant |
+|---------|----------------:|--------:|
+| `(0,2)+(1,6)` (SW1→SW2+SW4, "ASUS COLLAPSE") | 54.0 | 56.0 |
+| `(0,2)+(4,6)` (different src VS → SW2+SW4, "ASUS OK") | 112.0 | 112.5 |
+| `(0,2)+(1,3)` (1 dst root) | 56.4 | 56.4 |
+| `(0,4)+(1,6)` (SW1→SW3+SW4) | 111.9 | 111.2 |
+| `(0,2)+(0,6)+(1,3)+(1,7)` (4-flow ASUS pattern) | 56.2 | 56.2 |
+
+**No collapse on either wiring.** The ASUS pattern that catastrophically collapses on Broadcom + Turin (~2.7 GB/s) saturates the source-uplink x16 at ~56 GB/s on Microchip + TR Pro in *both* wirings.
+
+### What changed and what didn't
+
+* **Chip mapping is unchanged** — both wirings produce the same bandwidth signature (SW1↔SW3 fast, SW2↔SW4 fast, others saturated). The two physical c-payne packages still pair the same VSs internally.
+* **Cross-quadrant fabric utilisation moved**. Original wiring spreads the four upstream ports across all four IOD quadrants (Q0, Q1, Q2, Q3) so each quadrant carries traffic for one switch. Variant wiring concentrates all chip-A traffic on Q0 and all chip-B traffic on Q3 — only one cross-quadrant IF link (Q0 ↔ Q3) carries cross-chip traffic, and Q1/Q2 are idle.
+* **All-to-all loses ~11 %**. The eight GPUs now contend for two quadrants' worth of memory and IF capacity instead of four. Spreading the GPUs across four quadrants in the original wiring gives more aggregate bandwidth when the workload is fan-out / fan-in heavy.
+* **The per-flow saturation values cleaned up** (the 51 and 55 GB/s cells became 56). The variant has fewer concurrent cross-quadrant IF transitions to schedule, so the IOD reaches per-flow saturation more cleanly.
+* **Collapse trigger behaviour is identical**. Neither wiring exposes the AMD IOD posted-write collapse; both saturate at uplink limit on the ASUS-trigger patterns.
+
+### Practical take-away on this variant
+
+* If you have control over which root ports the chips' upstreams land on, the **original 4-quadrant wiring is preferable** for all-to-all-style workloads (~11 % more aggregate fabric throughput). For most tensor-parallel / ring-allreduce workloads the difference is negligible because per-uplink saturation is identical.
+* The variant gives a useful scientific data point: **moving from 4 to 2 active root complexes does not introduce the collapse**, on this Microchip + TR Pro silicon. (On Broadcom + Turin, the same two-root-complex pattern would collapse — see [`asus-esc8000a-e13p-broadcom-switches.md`](asus-esc8000a-e13p-broadcom-switches.md).)
+* Topology detection: the original wiring shows GPUs distributed across `pci0000:00`, `pci0000:20`, `pci0000:40`, `pci0000:e0`. The variant shows GPUs only on `pci0000:00` and `pci0000:e0` (two GPUs share a root bus when their chip's other upstream lands on a different port of the same root complex).
 
 ---
 
