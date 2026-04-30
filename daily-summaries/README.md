@@ -10,6 +10,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-30](2026-04/2026-04-30.md) | Mistral-Medium-3.5-128B released: dense 128B with vision + EAGLE drafter. FP8 decode ~36 tok/s bare, |
 | [2026-04-29](2026-04/2026-04-29.md) | MiMo V2.5 NVFP4 published by luke at end of day [(jump)](https://discord.com/channels/14668980027938 |
 | [2026-04-28](2026-04/2026-04-28.md) | b12x crushes SonicMoE: geo mean 0.40x latency — b12x is 2.5× faster at bs=1, 3.5× at bs=8 [(jump |
 | [2026-04-27](2026-04/2026-04-27.md) | llm_decode_bench v0.4.0 released — major rework: split prefill/sustained-decode/burst layers, new  |
@@ -75,6 +76,7 @@ Each highlight links directly to the relevant Discord message.
 
 | Date | Highlights |
 |------|------------|
+| [2026-04-30](2026-04/2026-04-30.md) | Mistral-Medium-3.5-128B released: dense 128B with vision + EAGLE drafter. FP8 decode ~36 tok/s bare, |
 | [2026-04-29](2026-04/2026-04-29.md) | MiMo V2.5 NVFP4 published by luke at end of day [(jump)](https://discord.com/channels/14668980027938 |
 | [2026-04-28](2026-04/2026-04-28.md) | b12x crushes SonicMoE: geo mean 0.40x latency — b12x is 2.5× faster at bs=1, 3.5× at bs=8 [(jump |
 | [2026-04-27](2026-04/2026-04-27.md) | llm_decode_bench v0.4.0 released — major rework: split prefill/sustained-decode/burst layers, new  |
