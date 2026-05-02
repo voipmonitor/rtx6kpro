@@ -175,6 +175,75 @@ This long-prefill test was performed during the session and was used to choose t
 
 Practical conclusion from the archived, reproducible state: use `0.89` with `max_model_len=202752`. Higher settings need to be remeasured before being published.
 
+## Voipmonitor LLM completion-stats result
+
+The current final vLLM container was tested with the internal long-document GLM task after the Docker/source audit above.
+
+Raw result artifact:
+
+```text
+models/glm5.1/results/vllm-pciebarrier-mtp-voipmonitor-llmtest-20260502.json
+```
+
+Exact test command:
+
+```bash
+python3 /mnt/llm_decode_bench.py \
+  --host localhost \
+  --port 5269 \
+  --model GLM-5 \
+  --completion-stats \
+  --completion-stats-min-results 30 \
+  --completion-stats-concurrency-levels 1,2,4,8,16,30 \
+  --display-mode plain \
+  --no-hw-monitor \
+  --output /mnt/glm51_voipmonitor_llmtest_20260502/vllm_pciebarrier_mtp_5269_completion_stats.json
+```
+
+Test metadata:
+
+| Field | Value |
+|---|---|
+| Timestamp | `2026-05-02T19:22:06.310498` |
+| Server | `http://localhost:5269` |
+| Model name | `GLM-5` |
+| Prompt | `models/glm5.1/compare-dense-mla-vs-nsa-benchmark-2026-04-20/prompts/testLuke5.txt` |
+| Prompt size | `707,372 chars`, `133,179 prompt tokens` in measured runs |
+| Max tokens | `40,000` |
+| Correctness regex | `\bestonia\b` against the final non-empty answer line |
+| Prefix cache scout | Enabled, one `max_tokens=1` scout before measured runs |
+
+Result summary:
+
+| Metric | Value |
+|---|---:|
+| Selected concurrency | `1` |
+| Completed | `30/30` |
+| Correct | `28/30` (`93.3%`) |
+| Hit `max_tokens` | `0` |
+| Aggregate generation throughput | `81.3 tok/s` |
+| Aggregate E2E throughput | `80.6 tok/s` |
+| Mean per-request generation throughput | `81.6 tok/s` |
+| Completion tokens avg | `6,423` |
+| Completion tokens p50 | `5,864` |
+| Completion tokens p90 | `10,709` |
+| Completion tokens p99 | `16,055` |
+| TTFT avg | `0.61s` |
+
+Adaptive probe details:
+
+| Concurrency | Runs | Correct | Aggregate gen tok/s | Selected |
+|---:|---:|---:|---:|---|
+| `1` | `30/30` | `28/30` | `81.3` | yes |
+| `2` | `2/2` | `2/2` | `67.2` | no |
+
+The two wrong final answers were both `Latvia` instead of `Estonia`:
+
+| Run | Completion tokens | Final answer |
+|---:|---:|---|
+| `1` | `9,222` | `**Answer:** Latvia` |
+| `22` | `16,099` | `Answer: Latvia` |
+
 ## What had to be added to vLLM
 
 The upstream SGLang patches could not be copied into vLLM as a mechanical backport. vLLM needed additional integration work around its scheduler metadata, CUDA graph capture, speculative decode API, block/page tables, prefix cache, and custom allreduce stack.
