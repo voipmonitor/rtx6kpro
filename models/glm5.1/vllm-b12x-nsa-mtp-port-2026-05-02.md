@@ -6,7 +6,7 @@ Audience: maintainers working on GLM-5.1, b12x, SGLang, and vLLM on RTX PRO 6000
 
 This is the state report for the custom vLLM port of `lukealonso/GLM-5.1-NVFP4-MTP` with b12x sparse NSA attention, ModelOpt FP4/NVFP4 weights, b12x MoE, MTP speculative decode, FP8 KV cache, and PCIe oneshot allreduce.
 
-The important result is that vLLM was made to run long prefill smoothly after removing runtime shape/JIT churn in the b12x integration. The remaining non-upstream part is a b12x PCIe oneshot completion barrier that is needed for correctness with CUDA graph/no-copy speculative decode on our 8-GPU PCIe topology.
+The important result is that vLLM was made to run long prefill smoothly after removing runtime shape/JIT churn in the b12x integration. The final Docker is not a vanilla vLLM or vanilla b12x wheel: it contains a custom vLLM tree plus a small audited b12x runtime overlay. The correctness-critical b12x overlay is the PCIe oneshot completion barrier needed with CUDA graph/no-copy speculative decode on our 8-GPU PCIe topology.
 
 ## Final reference image
 
@@ -22,10 +22,13 @@ Runtime components verified in the image:
 | Model | `lukealonso/GLM-5.1-NVFP4-MTP` |
 | vLLM | `0.0.0+local` custom tree |
 | PyTorch | `2.11.0+cu130` |
-| b12x | `0.11.1` plus local PCIe oneshot barrier patch |
+| b12x | `0.11.1` plus local runtime overlay listed below |
 | flashinfer-python | `0.6.8` |
 | transformers | `5.3.0` |
+| fastsafetensors | `0.2.2` |
 | NCCL graph XML | baked/mounted at `/opt/vllm/nccl_graph_opt.xml` |
+| b12x `attention/nsa_indexer/api.py` hash | `14d1fdb4585fbdc71ba828c97cd7fc013e2c15b57142e6f8ca7d3352a7587411` |
+| b12x `attention/nsa_indexer/tiled_topk.py` hash | `d6e920cf2431f8bdc5311f6e06d86cd142de0682663a5688b6f26143cb1596e7` |
 | b12x `pcie_oneshot.cu` hash | `2b8ccaf2294fc10795c923540eff2c8578d65d87a0fef92348d0fe6736673ee7` |
 | vLLM `b12x_mla_sparse.py` hash in final image | `dff7bd04773bca00c645f05030e1348d93c0f0e20d5eca4b7c6fb5d3167ae4b2` |
 
@@ -36,9 +39,11 @@ docker run --rm --entrypoint /bin/bash \
   voipmonitor/vllm:glm51-mtp-pciebarrier-b12x0111-kv432k-20260502 \
   -lc '/opt/venv/bin/python - <<PY
 import importlib.metadata as md
-for p in ["vllm", "torch", "b12x", "flashinfer-python", "transformers"]:
+for p in ["vllm", "torch", "b12x", "flashinfer-python", "transformers", "fastsafetensors"]:
     print(p, md.version(p))
 PY
+sha256sum /opt/venv/lib/python3.12/site-packages/b12x/attention/nsa_indexer/api.py
+sha256sum /opt/venv/lib/python3.12/site-packages/b12x/attention/nsa_indexer/tiled_topk.py
 sha256sum /opt/venv/lib/python3.12/site-packages/b12x/distributed/pcie_oneshot.cu
 sha256sum /opt/vllm/vllm/v1/attention/backends/mla/b12x_mla_sparse.py
 grep -n "multi_gpu_barrier<ngpus, false>" /opt/venv/lib/python3.12/site-packages/b12x/distributed/pcie_oneshot.cu
@@ -46,6 +51,10 @@ ls -l /opt/vllm/nccl_graph_opt.xml'
 
 docker logs vllm-glm51-local-pciebarrier-mtp-memtest-20260502 2>&1 \
   | rg "non-default args|GPU KV cache size|Available KV cache memory|Maximum concurrency"
+
+python3 -m pip download b12x==0.11.1 --no-deps -d /tmp/b12x_audit/wheel
+# The wheel was extracted under /tmp/b12x_audit/vanilla and the final image
+# package under /tmp/b12x_audit/final before comparing source hashes/diffs.
 ```
 
 The same image was also tagged locally during development as:
@@ -170,7 +179,7 @@ Practical conclusion from the archived, reproducible state: use `0.89` with `max
 
 The upstream SGLang patches could not be copied into vLLM as a mechanical backport. vLLM needed additional integration work around its scheduler metadata, CUDA graph capture, speculative decode API, block/page tables, prefix cache, and custom allreduce stack.
 
-Main vLLM-side areas touched during the port:
+Main vLLM-side areas touched during the port. The final image does not include a `.git` checkout under `/opt/vllm`, so this table is a functional source audit of the shipped image rather than a clean upstream diffstat.
 
 | Area | Why it was needed |
 |---|---|
@@ -189,7 +198,7 @@ Notable vLLM-only fixes:
 
 - `os.getenv()` calls were removed from per-layer/per-decode hot paths and moved to startup/module constants. This was a measurable CPU-side decode improvement and was a vLLM port artifact, not something seen in Luke's SGLang path.
 - The b12x sparse indexer was changed from live-shape scratch allocation to fixed-capacity arena/workspace usage.
-- Workspace creation was changed to be compatible with CUDA graphs (`use_cuda_graph=True`) because SGLang runs this way and the vLLM path should not require a slower eager-only backend.
+- Decode/indexer workspace and MLA arena paths were made CUDA-graph compatible where required because SGLang runs this way and the vLLM path should not require a slower eager-only backend. One NSA extend workspace in the final source still uses eager workspace creation, so this should not be read as "every b12x workspace uses `use_cuda_graph=True`".
 - Runtime CUTE/JIT specialization was reduced by making the scratch capacity stable and passing live lengths as runtime data instead of changing launcher-visible structural shapes.
 - vLLM had to prewarm b12x MoE and attention/indexer paths during engine startup so the first real long prompt does not repeatedly trigger compiles.
 - `index_topk_pattern` was wired through `--hf-overrides` so the GLM-5.1 NSA skip pattern can be supplied at launch.
@@ -243,17 +252,27 @@ Cost:
 - A/B testing against a no-barrier image suggests about a 1 tok/s no-MTP decode cost on the local system.
 - Example observed by user: about `50.4 tok/s` without the barrier path versus about `49.1 tok/s` with the barrier path in a no-MTP local test.
 
-This barrier is the most important audited delta versus vanilla b12x 0.11.1. It should be reviewed upstream. A lower-cost upstream solution might use a safer slot-lifetime/epoch protocol instead of a full completion barrier, but the current barrier is the known working option for this vLLM CUDA graph/no-copy configuration.
+This barrier is the most important correctness delta versus vanilla b12x 0.11.1. It should be reviewed upstream. A lower-cost upstream solution might use a safer slot-lifetime/epoch protocol instead of a full completion barrier, but the current barrier is the known working option for this vLLM CUDA graph/no-copy configuration.
 
 ## Difference from vanilla b12x
 
-The Docker reports `b12x 0.11.1`, but it is not byte-for-byte vanilla b12x 0.11.1.
+The Docker reports `b12x 0.11.1`, but the installed b12x package is not byte-for-byte identical to the vanilla `b12x==0.11.1` wheel. The shipped package was compared against a freshly downloaded vanilla wheel. Ignoring generated `__pycache__` files, exactly three b12x source files differ:
 
-Important difference:
+| b12x file | Vanilla hash | Final image hash | Purpose |
+|---|---|---|---|
+| `attention/nsa_indexer/api.py` | `4944b39c856c7f9aab014f2839bd7fedefc07cb2a29326a048220c4b8cb4be1a` | `14d1fdb4585fbdc71ba828c97cd7fc013e2c15b57142e6f8ca7d3352a7587411` | Avoids a CUDA-device `.amax().item()` metadata sync in vLLM's DCP/MTP decode path and gates page-id validation behind `B12X_NSA_VALIDATE_PAGE_IDS`. |
+| `attention/nsa_indexer/tiled_topk.py` | `dcf2ef22f197a9d37d6d4b427cd6d30ae9dac021fe434c5905d661c3c87a5195` | `d6e920cf2431f8bdc5311f6e06d86cd142de0682663a5688b6f26143cb1596e7` | Makes selected 1D row/index tensors dynamic in the CUTE launcher cache key and bumps the key to `tiled_topk_v18_dynamic_rows`, reducing sequence-length-driven recompilation. |
+| `distributed/pcie_oneshot.cu` | `3944baa025e33d98cd7a9e79434d9dad5e42437e1db04a3e234ef3b6a166dd42` | `2b8ccaf2294fc10795c923540eff2c8578d65d87a0fef92348d0fe6736673ee7` | Adds the PCIe oneshot completion barrier described above. |
 
-- `b12x/distributed/pcie_oneshot.cu` contains the completion barrier described above.
+Docker history confirms these runtime overlays were baked after `pip install --upgrade b12x==0.11.1 --no-deps`:
 
-Everything else in this report is primarily vLLM-side integration, not a broad b12x fork. The b12x APIs used are Luke's b12x NSA/MoE/FP4 APIs, but vLLM required extra glue to call them safely from vLLM's graph capture and scheduler paths.
+```text
+COPY patches/b12x_runtime/tiled_topk_dynamic_rows.patch ...
+COPY patches/b12x_runtime/nsa_indexer_api.py ...
+COPY vllm /opt/venv/lib/python3.12/site-packages/vllm ...
+```
+
+So the accurate description is: final image = vanilla `b12x==0.11.1` plus three audited source overlays, plus the custom vLLM tree. It is not a broad b12x fork, but it is also not just the upstream wheel.
 
 Open upstream question for Luke/b12x:
 
@@ -299,7 +318,7 @@ Comparing all `1686` Python files under `/opt/vllm/vllm` between the fast no-MTP
 VLLM_B12X_MLA_SPEC_SERIAL_DECODE default: "1" -> "0"
 ```
 
-That default is inert for no-MTP. The meaningful no-MTP decode difference was the b12x `pcie_oneshot.cu` barrier. The no-barrier reference has `pcie_oneshot.cu` hash `3944baa025e33d98cd7a9e79434d9dad5e42437e1db04a3e234ef3b6a166dd42`; the final image has `2b8ccaf2294fc10795c923540eff2c8578d65d87a0fef92348d0fe6736673ee7`.
+That default is inert for no-MTP. The b12x `attention/nsa_indexer/api.py` and `attention/nsa_indexer/tiled_topk.py` hashes are identical between these two images; the meaningful no-MTP decode difference was the b12x `pcie_oneshot.cu` barrier. The no-barrier reference has `pcie_oneshot.cu` hash `3944baa025e33d98cd7a9e79434d9dad5e42437e1db04a3e234ef3b6a166dd42`; the final image has `2b8ccaf2294fc10795c923540eff2c8578d65d87a0fef92348d0fe6736673ee7`.
 
 ## DCP8 status
 
