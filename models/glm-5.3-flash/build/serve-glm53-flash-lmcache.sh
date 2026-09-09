@@ -28,6 +28,9 @@ readonly http_port=${LMCACHE_HTTP_PORT:-8085}
 readonly prometheus_port=${LMCACHE_PROMETHEUS_PORT:-9095}
 readonly startup_timeout=${LMCACHE_STARTUP_TIMEOUT_SECONDS:-120}
 readonly transfer_mode=${LMCACHE_TRANSFER_MODE:-lmcache_driven}
+# 'retain' promotes L2-loaded chunks into L1; 'default' leaves them temporary.
+readonly prefetch_policy=${LMCACHE_L2_PREFETCH_POLICY:-retain}
+readonly extra_args=${LMCACHE_SERVER_EXTRA_ARGS:-}
 readonly broker_dir=${LMCACHE_CUMEM_BROKER_DIR:-/cache/lmcache-cumem}
 readonly chunk_size=${LMCACHE_CHUNK_SIZE:-4096}
 readonly target_token_budget=${LMCACHE_TARGET_TOKEN_BUDGET:-${MAX_NUM_BATCHED_TOKENS:-4096}}
@@ -57,6 +60,14 @@ case "${transfer_mode}" in
     ;;
 esac
 
+case "${prefetch_policy}" in
+  default | retain) ;;
+  *)
+    printf 'LMCACHE_L2_PREFETCH_POLICY must be default or retain; got %s\n' \
+      "${prefetch_policy}" >&2
+    exit 2
+    ;;
+esac
 case "${lmcache_kv_cache_dtype}" in
   fp8 | fp8_e4m3 | fp8_ds_mla | nvfp4_ds_mla) ;;
   *)
@@ -91,6 +102,7 @@ lmcache_server=(
   --l1-use-lazy
   --l1-init-size-gb "${LMCACHE_L1_INIT_SIZE_GB:-2}"
   --eviction-policy LRU
+  --l2-prefetch-policy "${prefetch_policy}"
   --http-host 127.0.0.1
   --http-port "${http_port}"
   --prometheus-port "${prometheus_port}"
@@ -211,6 +223,11 @@ if [[ ${transfer_mode} != engine_driven ]]; then
   export LMCACHE_CUMEM_BROKER_DIR="${broker_dir}"
   export LD_PRELOAD="/opt/lmcache/lib/liblmcache_cumem_shareable.so${LD_PRELOAD:+:${LD_PRELOAD}}"
   vllm_extra_args+=(--enable-cumem-allocator)
+fi
+
+if [[ -n ${extra_args} ]]; then
+  # shellcheck disable=SC2086
+  lmcache_server+=(${extra_args})
 fi
 
 "${lmcache_server[@]}" &

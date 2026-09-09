@@ -28,6 +28,9 @@ readonly http_port=${LMCACHE_HTTP_PORT:-8085}
 readonly prometheus_port=${LMCACHE_PROMETHEUS_PORT:-9095}
 readonly startup_timeout=${LMCACHE_STARTUP_TIMEOUT_SECONDS:-120}
 readonly transfer_mode=${LMCACHE_TRANSFER_MODE:-engine_driven}
+# 'retain' promotes L2-loaded chunks into L1; 'default' leaves them temporary.
+readonly prefetch_policy=${LMCACHE_L2_PREFETCH_POLICY:-retain}
+readonly extra_args=${LMCACHE_SERVER_EXTRA_ARGS:-}
 readonly broker_dir=${LMCACHE_CUMEM_BROKER_DIR:-/cache/lmcache-cumem}
 readonly chunk_size=${LMCACHE_CHUNK_SIZE:-4096}
 readonly target_token_budget=${LMCACHE_TARGET_TOKEN_BUDGET:-${MAX_NUM_BATCHED_TOKENS:-4096}}
@@ -59,6 +62,14 @@ case "${transfer_mode}" in
     ;;
 esac
 
+case "${prefetch_policy}" in
+  default | retain) ;;
+  *)
+    printf 'LMCACHE_L2_PREFETCH_POLICY must be default or retain; got %s\n' \
+      "${prefetch_policy}" >&2
+    exit 2
+    ;;
+esac
 shm_name=${LMCACHE_SHM_NAME:-}
 if [[ ${transfer_mode} == engine_driven && -z ${shm_name} ]]; then
   # The MP port is already exclusive under the host-network serving contract,
@@ -130,6 +141,7 @@ lmcache_server=(
   --l1-size-gb "${LMCACHE_L1_SIZE_GB:-64}"
   --l1-init-size-gb "${LMCACHE_L1_INIT_SIZE_GB:-2}"
   --eviction-policy LRU
+  --l2-prefetch-policy "${prefetch_policy}"
   --http-host 127.0.0.1
   --http-port "${http_port}"
   --prometheus-port "${prometheus_port}"
@@ -280,6 +292,11 @@ fi
 # override when supplied.
 if [[ ${transfer_mode} == engine_driven && -z ${GPU_MEMORY_UTILIZATION+x} ]]; then
   export GPU_MEMORY_UTILIZATION=0.950
+fi
+
+if [[ -n ${extra_args} ]]; then
+  # shellcheck disable=SC2086
+  lmcache_server+=(${extra_args})
 fi
 
 lmcache_server_command=("${lmcache_server[@]}")
