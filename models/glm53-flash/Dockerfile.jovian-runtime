@@ -1,0 +1,51 @@
+ARG BASE_IMAGE=local/glm53-flash-nvfp4-jovian:vllm4dbd82b-b12x903667d
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+ARG VLLM_RUNTIME_COMMIT=e7a2a9a71187550105ba182030ac4dd937227126
+ARG VLLM_RUNTIME_REPO=https://github.com/jackzampolin/vllm.git
+ARG B12X_RUNTIME_COMMIT=903667d36aee19320776019a31dd06d1e9255b6a
+ARG CACHE_FINGERPRINT=cu133-torch213-glm53-jovian-e7a2a9a-b12x903667d
+
+# The runtime commit contains Python/CuTeDSL changes only. Preserve the base
+# source tree and clone a clean runtime tree, then carry over its ABI-compatible
+# compiled extensions.
+WORKDIR /opt/jovian-judgement
+RUN mv /opt/jovian-judgement/vllm /opt/jovian-judgement/vllm-base \
+ && git clone --filter=blob:none --no-checkout "${VLLM_RUNTIME_REPO}" \
+      /opt/jovian-judgement/vllm \
+ && git -C /opt/jovian-judgement/vllm fetch --depth=1 origin "${VLLM_RUNTIME_COMMIT}" \
+ && git -C /opt/jovian-judgement/vllm checkout --detach "${VLLM_RUNTIME_COMMIT}" \
+ && test "$(git -C /opt/jovian-judgement/vllm rev-parse HEAD)" = "${VLLM_RUNTIME_COMMIT}" \
+ && find /opt/jovian-judgement/vllm-base/vllm -maxdepth 1 -type f \
+      -name '*.abi3.so' -exec cp -a -t /opt/jovian-judgement/vllm/vllm {} + \
+ && cp -a /opt/jovian-judgement/vllm-base/vllm/vllm_flash_attn \
+      /opt/jovian-judgement/vllm/vllm/
+
+ENV LOCAL_INFERENCE_CACHE_FINGERPRINT=${CACHE_FINGERPRINT}
+ENV XDG_CACHE_HOME=/cache/jit/${CACHE_FINGERPRINT}
+ENV VLLM_CACHE_ROOT=/cache/jit/${CACHE_FINGERPRINT}/vllm
+ENV B12X_CUTE_COMPILE_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/b12x/cute
+ENV B12X_COMPILE_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/b12x/compile
+
+WORKDIR /opt/jovian-judgement/vllm
+
+RUN /opt/venv/bin/python - <<'PY'
+import pathlib
+import b12x
+import vllm
+
+assert pathlib.Path(vllm.__file__).resolve().is_relative_to(
+    pathlib.Path("/opt/jovian-judgement/vllm")
+)
+assert pathlib.Path(b12x.__file__).resolve().is_relative_to(
+    pathlib.Path("/opt/jovian-judgement/b12x")
+)
+PY
+
+LABEL org.opencontainers.image.source="https://github.com/jackzampolin/vllm" \
+      local-inference.release.name="glm53-flash-nvfp4-jovian-runtime" \
+      local-inference.vllm.commit="${VLLM_RUNTIME_COMMIT}" \
+      local-inference.vllm.extension-commit="4dbd82b9ced13114f90e93b8b6fae0966c942a3b" \
+      local-inference.b12x.commit="${B12X_RUNTIME_COMMIT}"

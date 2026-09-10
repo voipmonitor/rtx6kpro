@@ -1,0 +1,102 @@
+services:
+  glm53:
+    image: ghcr.io/jackzampolin/glm53-flash-nvfp4-jovian:dcp4-prefix-mtp5-e7a2a9a-b12x903667d
+    container_name: glm53-flash-nvfp4-jovian
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    ipc: host
+    shm_size: 32g
+    security_opt:
+      - label=disable
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ulimits:
+      memlock: -1
+      stack: 67108864
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    environment:
+      VLLM_ENGINE_READY_TIMEOUT_S: 3600
+      VLLM_PCIE_ALLREDUCE_BACKEND: b12x
+      VLLM_B12X_MLA_CKV_GATHER: ${CKV_GATHER:-1}
+      VLLM_B12X_MLA_CKV_GATHER_MAX_TOKENS: ${CKV_GATHER_MAX_TOKENS:-524288}
+      VLLM_B12X_MLA_CKV_PREFETCH_DEPTH: ${CKV_PREFETCH_DEPTH:-0}
+      VLLM_B12X_MLA_CKV_PREFETCH_WORKSPACE_MIB: ${CKV_PREFETCH_WORKSPACE_MIB:-1024}
+      VLLM_B12X_MLA_SPEC_EXTEND_AS_DECODE: ${MTP_DECODE_PLAN:-off}
+      OMP_NUM_THREADS: 2
+      NCCL_IB_DISABLE: 1
+      # PHB is appropriate for a single-socket PCIe host. Set SYS on a
+      # dual-socket host when the GPUs span CPU sockets.
+      NCCL_P2P_LEVEL: ${NCCL_P2P_LEVEL:-PHB}
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+      CUDA_VISIBLE_DEVICES: 0,1,2,3
+    volumes:
+      - ${MODEL_DIR:?set MODEL_DIR to the downloaded checkpoint}:/model:ro
+      - ${CACHE_DIR:-./vllm-cache}:/cache
+    entrypoint: [/opt/venv/bin/vllm]
+    command:
+      - serve
+      - /model
+      - --served-model-name
+      - GLM-5.3-Flash-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+      - --tensor-parallel-size
+      - "4"
+      - --decode-context-parallel-size
+      - "4"
+      - --cp-kv-cache-interleave-size
+      - "4"
+      - --dcp-comm-backend
+      - ag_rs
+      - --mamba-cache-mode
+      - align
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --dtype
+      - bfloat16
+      - --kv-cache-dtype
+      - fp8
+      - --quantization
+      - modelopt_mixed
+      - --attention-backend
+      - B12X
+      - --block-size
+      - "256"
+      - --moe-backend
+      - humming
+      - --linear-backend
+      - b12x
+      - --no-enable-flashinfer-autotune
+      - --load-format
+      - instanttensor
+      - --gpu-memory-utilization
+      - "0.95"
+      - --max-model-len
+      - "524288"
+      - --max-num-seqs
+      - "16"
+      - --max-num-batched-tokens
+      - "4096"
+      - --reasoning-parser
+      - glm45
+      - --tool-call-parser
+      - glm47
+      - --enable-auto-tool-choice
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":5,"moe_backend":"humming","attention_backend":"B12X"}'
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:8001/health]
+      interval: 15s
+      timeout: 5s
+      retries: 240
+      start_period: 60s

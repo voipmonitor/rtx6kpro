@@ -1,0 +1,91 @@
+ARG BASE_IMAGE=voipmonitor/vllm@sha256:ef565229832e1f344fbe042dd97e950ec2cae10bc2fe7c6d158a47db840574f4
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+ARG VLLM_REPO=https://github.com/local-inference-lab/vllm.git
+ARG VLLM_COMMIT=4dbd82b9ced13114f90e93b8b6fae0966c942a3b
+ARG B12X_REPO=https://github.com/local-inference-lab/b12x.git
+ARG B12X_COMMIT=903667d36aee19320776019a31dd06d1e9255b6a
+
+RUN mkdir -p /opt/jovian-judgement \
+ && git clone --filter=blob:none --no-checkout "${VLLM_REPO}" \
+      /opt/jovian-judgement/vllm \
+ && git -C /opt/jovian-judgement/vllm fetch --depth=1 origin "${VLLM_COMMIT}" \
+ && git -C /opt/jovian-judgement/vllm checkout --detach "${VLLM_COMMIT}" \
+ && test "$(git -C /opt/jovian-judgement/vllm rev-parse HEAD)" = "${VLLM_COMMIT}" \
+ && git clone --filter=blob:none --no-checkout "${B12X_REPO}" \
+      /opt/jovian-judgement/b12x \
+ && git -C /opt/jovian-judgement/b12x fetch --depth=1 origin "${B12X_COMMIT}" \
+ && git -C /opt/jovian-judgement/b12x checkout --detach "${B12X_COMMIT}" \
+ && test "$(git -C /opt/jovian-judgement/b12x rev-parse HEAD)" = "${B12X_COMMIT}"
+
+# Preserve extension modules whose sources are unchanged, then rebuild the
+# vLLM CUDA/C++ extensions so the packed GLM-5.3 C4 cache operation matches
+# the checked-out Python implementation.
+RUN find /opt/glm53-flash/vllm/vllm -maxdepth 1 -type f -name '*.abi3.so' \
+      -exec cp -a -t /opt/jovian-judgement/vllm/vllm {} + \
+ && cp -a /opt/glm53-flash/vllm/vllm/vllm_flash_attn \
+      /opt/jovian-judgement/vllm/vllm/
+
+WORKDIR /opt/jovian-judgement/vllm
+
+RUN cmake -S . -B /tmp/jovian-vllm-extensions -G Ninja \
+      -U MARLIN_GEN_SCRIPT_HASH_AND_ARCH \
+      -U MOE_MARLIN_GEN_SCRIPT_HASH_AND_ARCH \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CUDA_ARCHITECTURES=75 \
+      -DVLLM_TARGET_DEVICE=cuda \
+      -DVLLM_PYTHON_EXECUTABLE=/opt/venv/bin/python \
+      -DNVCC_THREADS=4 \
+ && cmake --build /tmp/jovian-vllm-extensions --parallel 24 \
+ && cmake --install /tmp/jovian-vllm-extensions \
+      --prefix /tmp/jovian-vllm-flash-attn-python \
+      --component _vllm_fa4_cutedsl_C \
+ && cp -a /tmp/jovian-vllm-flash-attn-python/vllm/vllm_flash_attn/cute \
+      /opt/jovian-judgement/vllm/vllm/vllm_flash_attn/ \
+ && flash_attn_source=/tmp/jovian-vllm-extensions/_deps/vllm-flash-attn-src/vllm_flash_attn \
+ && cp -a "${flash_attn_source}/layers" "${flash_attn_source}/ops" \
+      /opt/jovian-judgement/vllm/vllm/vllm_flash_attn/ \
+ && find /tmp/jovian-vllm-extensions -name '*.abi3.so' \
+      > /tmp/jovian-vllm-extension-list \
+ && while IFS= read -r extension; do \
+      case "${extension}" in \
+        */vllm-flash-attn/*) destination=/opt/jovian-judgement/vllm/vllm/vllm_flash_attn ;; \
+        */_deps/*) continue ;; \
+        *) destination=/opt/jovian-judgement/vllm/vllm ;; \
+      esac; \
+      cp "${extension}" "${destination}/$(basename "${extension}")"; \
+    done < /tmp/jovian-vllm-extension-list \
+ && test -f /opt/jovian-judgement/vllm/vllm/_C_stable_libtorch.abi3.so \
+ && test -f /opt/jovian-judgement/vllm/vllm/vllm_flash_attn/cute/utils.py \
+ && rm -rf /tmp/jovian-vllm-extensions \
+      /tmp/jovian-vllm-flash-attn-python \
+      /tmp/jovian-vllm-extension-list
+
+ENV PYTHONPATH=/opt/jovian-judgement/vllm:/opt/jovian-judgement/b12x:/opt/exllamav3
+ENV SPARKINFER_DIR=/opt/jovian-judgement/b12x
+ENV LOCAL_INFERENCE_CACHE_FINGERPRINT=cu133-torch213-glm53-jovian-4dbd82b-b12x903667d
+ENV XDG_CACHE_HOME=/cache/jit/cu133-torch213-glm53-jovian-4dbd82b-b12x903667d
+ENV VLLM_CACHE_ROOT=/cache/jit/cu133-torch213-glm53-jovian-4dbd82b-b12x903667d/vllm
+ENV B12X_CUTE_COMPILE_CACHE_DIR=/cache/jit/cu133-torch213-glm53-jovian-4dbd82b-b12x903667d/b12x/cute
+ENV B12X_COMPILE_CACHE_DIR=/cache/jit/cu133-torch213-glm53-jovian-4dbd82b-b12x903667d/b12x/compile
+
+RUN /opt/venv/bin/python - <<'PY'
+import pathlib
+import b12x
+import vllm
+
+assert pathlib.Path(vllm.__file__).resolve().is_relative_to(
+    pathlib.Path("/opt/jovian-judgement/vllm")
+)
+assert pathlib.Path(b12x.__file__).resolve().is_relative_to(
+    pathlib.Path("/opt/jovian-judgement/b12x")
+)
+PY
+
+LABEL org.opencontainers.image.source="https://github.com/local-inference-lab/vllm" \
+      local-inference.release.name="glm53-flash-nvfp4-jovian-head" \
+      local-inference.vllm.commit="${VLLM_COMMIT}" \
+      local-inference.b12x.commit="${B12X_COMMIT}" \
+      local-inference.runtime.parent="voipmonitor/vllm@sha256:ef565229832e1f344fbe042dd97e950ec2cae10bc2fe7c6d158a47db840574f4"

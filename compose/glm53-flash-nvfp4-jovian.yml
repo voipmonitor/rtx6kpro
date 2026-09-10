@@ -1,0 +1,71 @@
+services:
+  server:
+    image: ${IMAGE:-ghcr.io/jackzampolin/glm53-flash-nvfp4-jovian:dcp4-prefix-mtp5-e7a2a9a-b12x903667d}
+    container_name: ${NAME:-glm53-flash-nvfp4-jovian}
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    init: true
+    shm_size: 32g
+    security_opt:
+      - label=disable
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ulimits:
+      memlock: -1
+      stack: 67108864
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    environment:
+      VLLM_ENGINE_READY_TIMEOUT_S: ${VLLM_ENGINE_READY_TIMEOUT_S:-3600}
+      VLLM_PCIE_ALLREDUCE_BACKEND: b12x
+      VLLM_B12X_MLA_CKV_GATHER: ${CKV_GATHER:-1}
+      VLLM_B12X_MLA_CKV_GATHER_MAX_TOKENS: ${CKV_GATHER_MAX_TOKENS:-524288}
+      VLLM_B12X_MLA_CKV_PREFETCH_DEPTH: ${CKV_PREFETCH_DEPTH:-0}
+      VLLM_B12X_MLA_CKV_PREFETCH_WORKSPACE_MIB: ${CKV_PREFETCH_WORKSPACE_MIB:-1024}
+      # The verifier decode-plan experiment regressed C16/32k on workstation-2.
+      VLLM_B12X_MLA_SPEC_EXTEND_AS_DECODE: ${MTP_DECODE_PLAN:-off}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+      NCCL_IB_DISABLE: ${NCCL_IB_DISABLE:-1}
+      # Both workstations are single-socket PCIe hosts. PHB is the appropriate
+      # peer level; SYS is the workaround for dual-socket hosts.
+      NCCL_P2P_LEVEL: ${NCCL_P2P_LEVEL:-PHB}
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+      CUDA_VISIBLE_DEVICES: 0,1,2,3
+      MODEL_CONTAINER: ${MODEL_CONTAINER}
+      SERVED_MODEL_NAME: ${SERVED_MODEL_NAME:-GLM-5.3-Flash-NVFP4}
+      PORT: ${PORT:-8001}
+      TP: ${TP:-4}
+      DCP: ${DCP:-4}
+      CP_KV_CACHE_INTERLEAVE_SIZE: ${CP_KV_CACHE_INTERLEAVE_SIZE:-4}
+      DCP_COMM_BACKEND: ${DCP_COMM_BACKEND:-ag_rs}
+      PREFIX_CACHING: ${PREFIX_CACHING:-1}
+      ENFORCE_EAGER: ${ENFORCE_EAGER:-0}
+      DISABLE_CUSTOM_ALL_REDUCE: ${DISABLE_CUSTOM_ALL_REDUCE:-0}
+      NUM_SPECULATIVE_TOKENS: ${MTP:-5}
+      PER_REQUEST_SPEC_DECODE_METRICS: ${PER_REQUEST_SPEC_DECODE_METRICS:-0}
+      SPEC_ATTENTION_BACKEND: ${SPEC_ATTENTION_BACKEND:-B12X}
+      ATTENTION_BACKEND: ${ATTENTION_BACKEND:-B12X}
+      MOE_BACKEND: ${MOE_BACKEND:-humming}
+      # GLM-5.3 sets a SwiGLU clamp. Keep Humming as the qualified default.
+      # When explicitly testing B12X MoE, set this to 1 to select its
+      # clamp-preserving W4A16 activation path; native W4A4 is not equivalent.
+      B12X_MOE_FORCE_A16: ${B12X_MOE_FORCE_A16:-0}
+      MAX_NUM_SEQS: ${MAX_NUM_SEQS:-16}
+      MAX_MODEL_LEN: ${MAX_MODEL_LEN:-524288}
+      MAX_NUM_BATCHED_TOKENS: ${MAX_BATCHED_TOKENS:-4096}
+      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.95}
+    volumes:
+      # Snapshot entries are symlinks into the repository-level blobs directory.
+      - ${MODEL_REPO_ROOT}:/model-cache:ro
+      - ${CACHE_DIR:-/data/vllm-cache/glm53-jovian-e7a2a9a-dcp4-mtp5-s16-b4096-humming}:/cache
+      - ../scripts/serve-glm53-flash-nvfp4-jovian.sh:/opt/local-inference/serve-glm53-flash-nvfp4-jovian.sh:ro
+    entrypoint:
+      - /bin/bash
+      - /opt/local-inference/serve-glm53-flash-nvfp4-jovian.sh
